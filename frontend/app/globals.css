@@ -1,0 +1,167 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #ff6a00;
+  --color-primary-hover: #ff7f1a;
+  --color-primary-deep: #c74400;
+  --color-primary-soft: rgba(255, 106, 0, 0.12);
+  --color-danger: #e64545;
+  --color-danger-soft: rgba(230, 69, 69, 0.12);
+  --color-warning: #f5a623;
+  --color-warning-soft: rgba(245, 166, 35, 0.14);
+  --color-success: #18a058;
+  --color-success-soft: rgba(24, 160, 88, 0.12);
+  --color-info: #2f80ed;
+  --color-info-soft: rgba(47, 128, 237, 0.12);
+  --chart-primary: #ff6a00;
+  --chart-secondary: #2f80ed;
+  --chart-danger: #e64545;
+  --chart-warning: #f5a623;
+  --chart-success: #18a058;
+  --chart-muted: #8e8e8e;
+}
+
+[data-theme="dark"] {
+  --bg-page: #0b0b0c;
+  --bg-sidebar: #101113;
+  --bg-header: #111214;
+  --bg-card: #151618;
+  --bg-card-hover: #1b1c1f;
+  --bg-table-header: #191a1d;
+  --bg-table-row-hover: rgba(255, 106, 0, 0.08);
+  --bg-elevated: #1b1c1f;
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 106, 0, 0.35);
+  --text-primary: #f5f5f5;
+  --text-secondary: #c8c8c8;
+  --text-tertiary: #8e8e8e;
+  --text-inverse: #111111;
+  --shadow-card: 0 12px 32px rgba(0, 0, 0, 0.35);
+  --terminal-grid: rgba(255, 255, 255, 0.045);
+  --background: 240 4% 5%;
+  --foreground: 0 0% 96%;
+  --card: 240 6% 9%;
+  --card-foreground: 0 0% 96%;
+  --muted: 240 5% 13%;
+  --muted-foreground: 0 0% 63%;
+  --accent: 25 100% 12%;
+  --accent-foreground: 28 100% 72%;
+  --primary: 25 100% 50%;
+  --primary-foreground: 0 0% 7%;
+  --destructive: 0 76% 59%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 100% / 0.08;
+  --input: 0 0% 100% / 0.1;
+  --ring: 25 100% 50%;
+}
+
+[data-theme="light"] {
+  --bg-page: #f5f6f8;
+  --bg-sidebar: #ffffff;
+  --bg-header: #ffffff;
+  --bg-card: #ffffff;
+  --bg-card-hover: #fff7f0;
+  --bg-table-header: #fff3e8;
+  --bg-table-row-hover: rgba(255, 106, 0, 0.08);
+  --bg-elevated: #ffffff;
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(255, 106, 0, 0.45);
+  --text-primary: #1f1f1f;
+  --text-secondary: #555555;
+  --text-tertiary: #8a8a8a;
+  --text-inverse: #ffffff;
+  --shadow-card: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --terminal-grid: rgba(0, 0, 0, 0.045);
+  --background: 220 13% 96%;
+  --foreground: 0 0% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 12%;
+  --muted: 28 100% 96%;
+  --muted-foreground: 0 0% 38%;
+  --accent: 28 100% 95%;
+  --accent-foreground: 21 100% 32%;
+  --primary: 25 100% 50%;
+  --primary-foreground: 0 0% 100%;
+  --destructive: 0 76% 48%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 0 0% 0% / 0.08;
+  --input: 0 0% 0% / 0.1;
+  --ring: 25 100% 50%;
+}
+
+* {
+  border-color: var(--border-subtle);
+}
+
+html,
+body {
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+body {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(255, 106, 0, 0.08), transparent 28rem),
+    linear-gradient(180deg, var(--bg-header), var(--bg-page) 18rem);
+  color: var(--text-primary);
+  font-feature-settings: "tnum";
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+::selection {
+  background: var(--color-primary-soft);
+  color: var(--text-primary);
+}
+
+.finance-number {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.market-up {
+  color: var(--color-danger);
+}
+
+.market-down {
+  color: var(--color-success);
+}
+
+.market-flat {
+  color: var(--text-tertiary);
+}
+
+.terminal-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 106, 0, 0.035), transparent 9rem),
+    var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+}
+
+.terminal-grid-bg {
+  background-image:
+    linear-gradient(var(--terminal-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--terminal-grid) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+

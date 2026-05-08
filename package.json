@@ -1,0 +1,13 @@
+{
+  "name": "personal-quant-research-system",
+  "private": true,
+  "scripts": {
+    "dev": "bash scripts/dev.sh",
+    "dev:backend": "cd backend && uvicorn app.main:app --reload --host 127.0.0.1 --port 8000",
+    "dev:frontend": "node \"$npm_execpath\" --prefix frontend run dev",
+    "lint": "node \"$npm_execpath\" --prefix frontend run lint",
+    "build": "node \"$npm_execpath\" --prefix frontend run build",
+    "lint:frontend": "node \"$npm_execpath\" --prefix frontend run lint",
+    "typecheck:frontend": "node \"$npm_execpath\" --prefix frontend run typecheck"
+  }
+}
