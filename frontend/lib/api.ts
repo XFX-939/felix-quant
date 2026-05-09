@@ -27,7 +27,33 @@ import type {
   TaskRun
 } from "@/lib/types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const CONFIGURED_API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "");
+
+function getApiBase() {
+  if (!CONFIGURED_API_BASE) return "";
+  if (typeof window === "undefined") return CONFIGURED_API_BASE;
+
+  try {
+    const configured = new URL(CONFIGURED_API_BASE, window.location.origin);
+    const current = window.location;
+    const configuredIsSameOrigin = configured.origin === current.origin;
+    const configuredIsLocal =
+      configured.hostname === "localhost" ||
+      configured.hostname === "127.0.0.1" ||
+      configured.hostname === "0.0.0.0";
+    const configuredIsRawIp = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(configured.hostname);
+    const wouldCrossFromDomainToIp = configuredIsRawIp && configured.hostname !== current.hostname;
+    const wouldDowngradeHttps = current.protocol === "https:" && configured.protocol === "http:";
+
+    if (configuredIsSameOrigin || configuredIsLocal || wouldCrossFromDomainToIp || wouldDowngradeHttps) {
+      return "";
+    }
+
+    return configured.origin;
+  } catch {
+    return "";
+  }
+}
 
 type QueryValue = string | number | boolean | null | undefined;
 
@@ -44,7 +70,7 @@ function withQuery(path: string, query?: Record<string, QueryValue>) {
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+  const response = await fetch(`${getApiBase()}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
