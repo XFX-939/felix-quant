@@ -38,8 +38,8 @@ class AkshareDataProvider:
 
     def fetch_stock_universe(self, limit: int | None = None) -> list[dict]:
         try:
-            frame = self.ak.stock_zh_a_spot_em()
-        except Exception:
+            frame = self._market_spot_frame()
+        except AkshareUnavailableError:
             return self._basic_stock_universe(limit=limit)
         if frame is None or frame.empty:
             return self._basic_stock_universe(limit=limit)
@@ -69,8 +69,8 @@ class AkshareDataProvider:
 
     def fetch_market_snapshot(self, limit: int | None = None) -> list[dict]:
         try:
-            frame = self.ak.stock_zh_a_spot_em()
-        except Exception as exc:
+            frame = self._market_spot_frame()
+        except AkshareUnavailableError as exc:
             raise AkshareUnavailableError(f"AKShare 全市场实时行情获取失败：{exc}") from exc
         if frame is None or frame.empty:
             raise AkshareUnavailableError("AKShare 未返回全市场实时行情。")
@@ -118,6 +118,23 @@ class AkshareDataProvider:
             if limit and len(rows) >= limit:
                 break
         return rows
+
+    def _market_spot_frame(self) -> Any:
+        errors: list[str] = []
+        for function_name in ("stock_zh_a_spot_em", "stock_zh_a_spot"):
+            function = getattr(self.ak, function_name, None)
+            if not callable(function):
+                errors.append(f"{function_name}: 当前 AKShare 版本不支持")
+                continue
+            try:
+                frame = function()
+            except Exception as exc:  # noqa: BLE001 - external data source boundary
+                errors.append(f"{function_name}: {exc}")
+                continue
+            if frame is not None and not frame.empty:
+                return frame
+            errors.append(f"{function_name}: 空数据")
+        raise AkshareUnavailableError("；".join(errors) or "无可用实时行情接口")
 
     def fetch_daily_prices(self, code: str, start_date: str, end_date: str, adjust: str = "qfq") -> list[dict]:
         symbol = normalize_stock_code(code)

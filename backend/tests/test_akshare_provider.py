@@ -86,6 +86,41 @@ class FakeAkshareSpotFails:
         )
 
 
+class FakeAkshareRealtimeFallback:
+    def stock_zh_a_spot_em(self):
+        raise ConnectionError("Remote end closed connection without response")
+
+    def stock_zh_a_spot(self):
+        return pd.DataFrame(
+            [
+                {
+                    "代码": "000001",
+                    "名称": "平安银行",
+                    "最新价": 12.34,
+                    "涨跌幅": 1.23,
+                    "成交量": 123456,
+                    "成交额": 1500000000,
+                    "昨收": 12.19,
+                    "今开": 12.1,
+                    "最高": 12.5,
+                    "最低": 12.0,
+                },
+                {
+                    "代码": "600036",
+                    "名称": "招商银行",
+                    "最新价": 42.6,
+                    "涨跌幅": -0.5,
+                    "成交量": 456789,
+                    "成交额": 2100000000,
+                    "昨收": 42.81,
+                    "今开": 42.8,
+                    "最高": 43.2,
+                    "最低": 42.1,
+                },
+            ]
+        )
+
+
 class FakeAkshareHistFails(FakeAkshare):
     def stock_zh_a_hist(self, symbol, period, start_date, end_date, adjust):
         raise ConnectionError("Remote end closed connection without response")
@@ -152,6 +187,27 @@ class AkshareProviderTest(unittest.TestCase):
         self.assertEqual(stocks[1]["industry"], "未分类")
         self.assertFalse(stocks[1]["is_st"])
         self.assertFalse(stocks[1]["is_suspended"])
+
+    def test_fetch_stock_universe_falls_back_to_realtime_spot(self):
+        provider = AkshareDataProvider(FakeAkshareRealtimeFallback())
+
+        stocks = provider.fetch_stock_universe(limit=2)
+
+        self.assertEqual([stock["code"] for stock in stocks], ["000001", "600036"])
+        self.assertEqual(stocks[0]["name"], "平安银行")
+        self.assertFalse(stocks[0]["is_suspended"])
+
+    def test_fetch_market_snapshot_falls_back_to_realtime_spot(self):
+        provider = AkshareDataProvider(FakeAkshareRealtimeFallback())
+
+        rows = provider.fetch_market_snapshot(limit=2)
+
+        self.assertEqual([row["stock_code"] for row in rows], ["000001", "600036"])
+        self.assertEqual(rows[0]["stock_name"], "平安银行")
+        self.assertEqual(rows[0]["close"], 12.34)
+        self.assertEqual(rows[0]["pre_close"], 12.19)
+        self.assertEqual(rows[0]["change_pct"], 1.23)
+        self.assertFalse(rows[0]["is_suspended"])
 
     def test_fetch_daily_prices_maps_hist_fields_and_units(self):
         fake_ak = FakeAkshare()
