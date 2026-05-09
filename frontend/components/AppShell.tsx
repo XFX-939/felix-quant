@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
@@ -285,9 +286,13 @@ function Header() {
     <header className="sticky top-0 z-20 border-b border-[var(--border-subtle)] bg-[var(--bg-header)]/95 backdrop-blur">
       <div className="flex min-h-16 items-center justify-between gap-3 px-3 py-2 md:px-5 lg:px-6">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-md border border-[var(--border-strong)] bg-[var(--color-primary-soft)] lg:hidden">
-            <DatabaseZap className="h-5 w-5 text-[var(--color-primary)]" aria-hidden />
-          </div>
+          <Image
+            src="/brand/felix-quant-icon-64.png"
+            alt="Felix量化"
+            width={36}
+            height={36}
+            className="h-9 w-9 rounded-md border border-[var(--border-strong)] bg-white object-cover shadow-[0_0_18px_rgba(255,106,0,0.18)] lg:hidden"
+          />
           <div className="hidden min-w-0 lg:block">
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold tracking-wide">Felix量化</span>
@@ -593,9 +598,13 @@ function Sidebar({ pathname }: { pathname: string }) {
   return (
     <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-[var(--border-subtle)] bg-[var(--bg-sidebar)] lg:block">
       <div className="flex h-16 items-center gap-3 border-b border-[var(--border-subtle)] px-5">
-        <div className="flex h-10 w-10 items-center justify-center rounded-md border border-[var(--border-strong)] bg-[var(--color-primary-soft)] shadow-[0_0_24px_rgba(255,106,0,0.18)]">
-          <BarChart3 className="h-5 w-5 text-[var(--color-primary)]" aria-hidden />
-        </div>
+        <Image
+          src="/brand/felix-quant-icon-64.png"
+          alt="Felix量化"
+          width={40}
+          height={40}
+          className="h-10 w-10 rounded-md border border-[var(--border-strong)] bg-white object-cover shadow-[0_0_24px_rgba(255,106,0,0.18)]"
+        />
         <div>
           <div className="text-sm font-semibold tracking-wide">Felix量化</div>
           <div className="text-xs uppercase tracking-[0.18em] text-[var(--text-tertiary)]">QUANT RESEARCH TERMINAL</div>
