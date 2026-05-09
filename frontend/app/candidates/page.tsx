@@ -5,6 +5,7 @@ import Link from "next/link";
 import { BarChart3, Eye, FileText, LayoutGrid, List, PenLine, Search, X } from "lucide-react";
 
 import { RiskBadge } from "@/components/RiskBadge";
+import { EmptyState } from "@/components/feedback/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -352,8 +353,17 @@ function CandidateSection({
                 ))}
                 {!candidates.length && (
                   <TableRow>
-                    <TableCell colSpan={8} className="py-10 text-center text-[var(--text-tertiary)]">
-                      {emptyText}
+                    <TableCell colSpan={8} className="py-4">
+                      <EmptyState
+                        compact
+                        variant={title.includes("风险") ? "no-result" : "strategy-not-run"}
+                        title={`${title}暂无结果`}
+                        description={emptyText}
+                        reason="可能是今日策略尚未运行、当前筛选条件过严、行情数据未同步，或市场状态不适合该类策略。"
+                        primaryAction={{ label: "重置筛选", onClick: () => window.location.assign("/candidates") }}
+                        secondaryAction={{ label: "手动刷新数据与策略", href: "/" }}
+                        helpLink={{ label: "检查数据", href: "/data-center" }}
+                      />
                     </TableCell>
                   </TableRow>
                 )}
@@ -366,7 +376,17 @@ function CandidateSection({
           {candidates.map((candidate) => (
             <CandidateCard key={candidate.key} candidate={candidate} onOpen={() => onOpen(candidate)} />
           ))}
-          {!candidates.length && <div className="py-8 text-center text-sm text-[var(--text-tertiary)]">{emptyText}</div>}
+          {!candidates.length && (
+            <EmptyState
+              compact
+              variant={title.includes("风险") ? "no-result" : "strategy-not-run"}
+              title={`${title}暂无结果`}
+              description={emptyText}
+              reason="可先重置筛选；若仍为空，请检查后台策略快照或数据中心。"
+              primaryAction={{ label: "重置筛选", onClick: () => window.location.assign("/candidates") }}
+              secondaryAction={{ label: "手动刷新数据与策略", href: "/" }}
+            />
+          )}
         </div>
       </CardContent>}
     </Card>

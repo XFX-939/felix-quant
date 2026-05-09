@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { BarChart3, Download, Eye, Info, Loader2, Play, RotateCcw } from "lucide-react";
 
 import { BacktestChart } from "@/components/charts/BacktestChart";
+import { EmptyState } from "@/components/feedback/EmptyState";
 import { RiskBadge } from "@/components/RiskBadge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -528,6 +529,18 @@ export default function BacktestPage() {
       {activeTask && <TaskProgressCard task={activeTask} />}
       {batchDetail && <BatchBacktestPanel detail={batchDetail} onViewResult={async (id) => setCurrent(await api.backtestDetail(id))} />}
 
+      {!current && (
+        <EmptyState
+          variant="backtest-missing"
+          title="暂无历史回测结果"
+          description="先运行一次单策略或批量回测，系统会生成净值曲线、交易明细，并刷新策略收益看板。"
+          reason={`示例配置：${selectedStrategy?.name || "均线趋势策略"} / ${selectedStockPool?.label || "当前候选池"} / 近一年 / 手续费 ${form.fee_rate} / 滑点 ${form.slippage}。交易次数少于 30 时仅用于功能验证。`}
+          primaryAction={{ label: mode === "batch" ? `运行批量回测（${selectedStrategyIds.length} 个策略）` : "一键运行示例回测", onClick: runBacktest, disabled: running || taskRunning || dateError }}
+          secondaryAction={{ label: "先补齐历史数据", href: "/data-center" }}
+          helpLink={{ label: "查看回测教程", href: "/guide#single-backtest" }}
+        />
+      )}
+
       {current && (
         <>
           <BacktestValidityCard result={current} />
@@ -688,6 +701,20 @@ export default function BacktestPage() {
                     </TableCell>
                   </TableRow>
                 ))}
+                {!results.length && (
+                  <TableRow>
+                    <TableCell colSpan={10} className="py-4">
+                      <EmptyState
+                        compact
+                        variant="backtest-missing"
+                        title="暂无历史回测记录"
+                        description="回测历史会在异步回测完成后写入。"
+                        reason="如果刚刚运行了回测，请等待任务进度完成；若从未运行，请使用上方参数区启动。"
+                        primaryAction={{ label: "运行示例回测", onClick: runBacktest, disabled: running || taskRunning || dateError }}
+                      />
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </div>
@@ -738,7 +765,15 @@ export default function BacktestPage() {
                 })}
                 {!batchTasks.length && (
                   <TableRow>
-                    <TableCell colSpan={9} className="py-8 text-center text-[var(--text-tertiary)]">暂无批量回测记录。</TableCell>
+                    <TableCell colSpan={9} className="py-4">
+                      <EmptyState
+                        compact
+                        variant="backtest-missing"
+                        title="暂无批量回测记录"
+                        description="切换到多策略批量回测后，可横向比较多个策略的收益、回撤、胜率和样本可信度。"
+                        primaryAction={{ label: "切换批量模式", onClick: () => setMode("batch") }}
+                      />
+                    </TableCell>
                   </TableRow>
                 )}
               </TableBody>

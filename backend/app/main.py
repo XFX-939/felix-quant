@@ -1,10 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import backtest, dashboard, data, market_data, research, reviews, risk, signals, stock_inspector, stocks, strategies, strategy_performance, sync, tasks
+from app.api import backtest, dashboard, data, jobs, market_data, research, reviews, risk, signals, stock_inspector, stocks, strategies, strategy_performance, sync, tasks
 from app.core.config import APP_NAME, CORS_ORIGIN_REGEX, CORS_ORIGINS, DISCLAIMER
 from app.db.database import initialize_database
-from app.services.strategy_service import list_signals, run_strategies
+from app.services.scheduled_job_service import start_scheduler
 
 
 app = FastAPI(title=APP_NAME, version="0.1.0")
@@ -22,8 +22,7 @@ app.add_middleware(
 @app.on_event("startup")
 def startup() -> None:
     initialize_database()
-    if not list_signals(only_today=True):
-        run_strategies()
+    start_scheduler()
 
 
 @app.get("/api/health")
@@ -47,3 +46,5 @@ app.include_router(reviews.router, prefix="/api")
 app.include_router(research.router, prefix="/api")
 app.include_router(tasks.router, prefix="/api")
 app.include_router(sync.router, prefix="/api")
+app.include_router(jobs.router, prefix="/api")
+app.include_router(jobs.internal_router, prefix="/api")

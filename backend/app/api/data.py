@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.services.akshare_provider import AkshareUnavailableError
 from app.services.market_service import update_market_data
 from app.services.market_sync_jobs import get_sync_job, start_full_market_sync
+from app.services.scheduled_job_service import data_status_overview
 from app.services.strategy_service import run_strategies
 
 router = APIRouter(prefix="/data", tags=["data"])
@@ -40,3 +41,8 @@ def start_full_market_data_sync(
 @router.get("/sync/full-market")
 def get_full_market_data_sync_status(job_id: str | None = Query(default=None)) -> dict:
     return get_sync_job(job_id)
+
+
+@router.get("/status")
+def get_data_status() -> dict:
+    return data_status_overview()

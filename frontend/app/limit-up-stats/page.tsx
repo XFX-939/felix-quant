@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { AlertTriangle, BarChart3, Flame, RefreshCw, Search, ShieldAlert, Target, X } from "lucide-react";
 
+import { EmptyState } from "@/components/feedback/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -139,7 +140,7 @@ export default function LimitUpStatsPage() {
         <div>
           <div className="text-sm text-[var(--text-tertiary)]">Felix Limit-Up Momentum Strategy</div>
           <h1 className="mt-1 text-xl font-semibold">连板股量化策略分析</h1>
-          <p className="mt-1 text-sm text-[var(--text-tertiary)]">基于市场情绪、行业热度、封板质量、流动性和风险约束生成 FLUM 连板情绪强度策略信号。</p>
+          <p className="mt-1 text-sm text-[var(--text-tertiary)]">基于市场情绪、行业热度、封板质量、流动性和风险约束生成 FLUM 连板情绪强度研究信号。</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-tertiary)]">
@@ -182,7 +183,7 @@ export default function LimitUpStatsPage() {
         <Metric title="最高连板" value={summary?.highestBoard ? `${summary.highestBoard}连板` : "-"} hint="短线高度" tone="hot" />
         <Metric title="3板以上" value={String(sentiment?.threeBoardPlusCount ?? summary?.thirdPlusCount ?? 0)} hint="高标活跃度" />
         <Metric title="跌停数量" value={String(sentiment?.limitDownCount ?? summary?.limitDownCount ?? 0)} hint="情绪风险参考" tone="risk" />
-        <Metric title="可参与" value={String((data?.items || []).filter((item) => item.actionLabel === "可参与").length)} hint="需盘中确认" tone="hot" />
+        <Metric title="计划观察" value={String((data?.items || []).filter((item) => item.actionLabel === "可参与").length)} hint="仅代表满足研究条件" tone="hot" />
         <Metric title="策略信号" value={`${data?.items.length ?? 0}只`} hint={data?.strategyCode || "FLUM"} />
       </section>
 
@@ -190,13 +191,13 @@ export default function LimitUpStatsPage() {
         <CardHeader className="flex-row items-center justify-between">
           <div>
             <CardTitle>FLUM 策略说明</CardTitle>
-            <p className="mt-1 text-xs leading-5 text-[var(--text-tertiary)]">“可参与”仅代表策略计划层面的可研究场景，必须满足次日触发条件和人工确认；本模块不输出交易指令。</p>
+            <p className="mt-1 text-xs leading-5 text-[var(--text-tertiary)]">“计划观察”仅代表策略计划层面的可研究场景，必须满足次日触发条件和人工确认；本模块不输出交易指令。</p>
           </div>
           <Badge tone="warning">非投资建议</Badge>
         </CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-3">
           <MiniRule icon={<BarChart3 className="h-4 w-4" />} title="评分模型" text="市场情绪 20 + 行业热度 20 + 连板高度 15 + 封板质量 20 + 流动性 15 + 风险惩罚。" />
-          <MiniRule icon={<Target className="h-4 w-4" />} title="操作分层" text="A 可参与、B 观察、C 回避、D 禁止参与；市场退潮和硬风险会直接降级。" />
+          <MiniRule icon={<Target className="h-4 w-4" />} title="操作分层" text="A 计划观察、B 观察、C 回避、D 禁止参与；市场退潮和硬风险会直接降级。" />
           <MiniRule icon={<ShieldAlert className="h-4 w-4" />} title="风控口径" text="仓位建议仅用于策略回测和交易计划，不构成投资建议；高位一字板和炸板风险会扣分。" />
         </CardContent>
       </Card>
@@ -243,7 +244,7 @@ export default function LimitUpStatsPage() {
             <Select value={actionLabel} onChange={(event) => setActionLabel(event.target.value as ActionFilter)}>
               {ACTION_OPTIONS.map((item) => (
                 <option key={item} value={item}>
-                  {item === "all" ? "全部" : item}
+                  {item === "all" ? "全部" : displayActionLabel(item)}
                 </option>
               ))}
             </Select>
@@ -291,7 +292,16 @@ export default function LimitUpStatsPage() {
                   <div className="finance-number text-right text-[var(--color-primary)]">{formatNumber(item.industryHeatScore, 1)}</div>
                 </div>
               ))}
-              {!industryHeat.length && <div className="py-8 text-center text-sm text-[var(--text-tertiary)]">暂无行业热度数据，请先同步行情并生成策略信号。</div>}
+              {!industryHeat.length && (
+                <EmptyState
+                  compact
+                  variant="data-missing"
+                  title="暂无行业热度数据"
+                  description="行业热度需要每日行情、涨停识别和行业映射。"
+                  primaryAction={{ label: "重新同步行情", onClick: forceSync, disabled: syncStatus?.isRunning }}
+                  secondaryAction={{ label: "生成 FLUM 信号", onClick: generateSignals, disabled: signalLoading }}
+                />
+              )}
             </div>
           </CardContent>
         </Card>
@@ -314,7 +324,16 @@ export default function LimitUpStatsPage() {
                 <span className="finance-number text-right">{item.count}</span>
               </div>
             ))}
-            {!summary?.heightDistribution?.length && <div className="py-6 text-sm text-[var(--text-tertiary)]">暂无涨停分布数据，请先完成每日行情同步。</div>}
+            {!summary?.heightDistribution?.length && (
+              <EmptyState
+                compact
+                variant="data-missing"
+                title="暂无涨停分布数据"
+                description="连板统计依赖每日行情入库和涨停价格识别。"
+                primaryAction={{ label: "同步涨停数据", onClick: forceSync, disabled: syncStatus?.isRunning }}
+                secondaryAction={{ label: "生成 FLUM 信号", onClick: generateSignals, disabled: signalLoading }}
+              />
+            )}
             {flumBacktest && (
               <div className="mt-4 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
@@ -334,14 +353,14 @@ export default function LimitUpStatsPage() {
       <Card>
         <CardHeader>
           <CardTitle>高分连板股策略表</CardTitle>
-          <p className="mt-1 text-xs text-[var(--text-tertiary)]">默认按操作建议、个股评分、连板高度、行业热度排序。“可参与”必须满足触发条件后再复核。</p>
+          <p className="mt-1 text-xs text-[var(--text-tertiary)]">默认按研究计划层级、个股评分、连板高度、行业热度排序。“计划观察”必须满足触发条件后再复核。</p>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto scrollbar-thin">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>建议</TableHead>
+                  <TableHead>计划层级</TableHead>
                   <TableHead>股票</TableHead>
                   <TableHead>连板</TableHead>
                   <TableHead>行业</TableHead>
@@ -360,7 +379,7 @@ export default function LimitUpStatsPage() {
                 {displayedStocks.map((stock) => (
                   <TableRow key={`${stock.boardHeight}-${stock.code}`}>
                     <TableCell>
-                      <Badge tone={actionTone(stock.actionLabel)}>{stock.actionLabel || "-"}</Badge>
+                      <Badge tone={actionTone(stock.actionLabel)}>{displayActionLabel(stock.actionLabel)}</Badge>
                       <div className="mt-1 text-xs text-[var(--text-tertiary)]">{stock.actionLevel || "-"}</div>
                     </TableCell>
                     <TableCell>
@@ -410,7 +429,16 @@ export default function LimitUpStatsPage() {
               </TableBody>
             </Table>
           </div>
-          {!displayedStocks.length && <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-card)] p-10 text-center text-sm text-[var(--text-tertiary)]">暂无符合条件的连板策略信号。</div>}
+          {!displayedStocks.length && (
+            <EmptyState
+              variant="no-result"
+              title="暂无符合条件的连板策略信号"
+              description="可能是今日行情尚未同步、筛选条件过严、行业热度不足，或 FLUM 信号尚未生成。"
+              reason="先同步行情，再生成 FLUM 信号；如果仍为空，可放宽评分、行业或连板高度筛选。"
+              primaryAction={{ label: "重新同步行情", onClick: forceSync, disabled: syncStatus?.isRunning }}
+              secondaryAction={{ label: "生成 FLUM 信号", onClick: generateSignals, disabled: signalLoading }}
+            />
+          )}
         </CardContent>
       </Card>
 
@@ -494,7 +522,7 @@ function StockDetailModal({ stock, onClose }: { stock: LimitUpStatsItem; onClose
             <CardContent className="space-y-3">
               <div className="flex items-end justify-between">
                 <div>
-                  <Badge tone={actionTone(stock.actionLabel)}>{stock.actionLabel || "-"}</Badge>
+                  <Badge tone={actionTone(stock.actionLabel)}>{displayActionLabel(stock.actionLabel)}</Badge>
                   <div className="mt-2 text-xs text-[var(--text-tertiary)]">行业热度排名 #{stock.industryHeatRank || "-"} · {stock.industryLineType || "-"}</div>
                 </div>
                 <div className="finance-number text-3xl font-semibold text-[var(--color-danger)]">{formatNumber(stock.totalScore, 1)}</div>
@@ -559,6 +587,12 @@ function actionTone(action?: string) {
   if (action === "回避") return "muted";
   if (action === "禁止参与") return "danger";
   return "default";
+}
+
+function displayActionLabel(action?: string) {
+  if (!action) return "待评分";
+  if (action === "可参与") return "计划观察";
+  return action;
 }
 
 function sentimentTone(state?: string): "default" | "hot" | "risk" | "success" {

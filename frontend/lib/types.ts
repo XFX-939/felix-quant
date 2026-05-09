@@ -41,6 +41,80 @@ export interface MarketDataSyncStatus {
   usingCacheDate?: string | null;
 }
 
+export interface ScheduledJob {
+  id?: number;
+  job_name: string;
+  job_type: string;
+  cron_expression: string;
+  enabled: number | boolean;
+  timezone: string;
+  description: string;
+  run_time?: string;
+  snapshot_type?: "morning" | "midday" | "after_close" | "manual" | string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface JobRun {
+  id: number;
+  job_name: string;
+  job_type: string;
+  trigger_type: "auto" | "manual" | "unit_test" | string;
+  status:
+    | "pending"
+    | "running"
+    | "success"
+    | "failed"
+    | "partial_success"
+    | "cancelled"
+    | "skipped"
+    | "skipped_non_trading_day"
+    | "failed_timeout";
+  scheduled_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  duration_ms?: number | null;
+  progress: number;
+  current_stage: string;
+  success_count: number;
+  failed_count: number;
+  retry_count: number;
+  data_date?: string | null;
+  snapshot_type?: string | null;
+  error_message?: string | null;
+  result_summary: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
+  reused?: boolean;
+}
+
+export interface JobsLatestStatus {
+  timezone: string;
+  dataDate: string;
+  schedulerEnabled: boolean;
+  scheduledJobs: ScheduledJob[];
+  todayRuns: Record<string, JobRun | null>;
+  runningRuns: JobRun[];
+  latestSuccess?: JobRun | null;
+  latestFailure?: JobRun | null;
+}
+
+export interface DataStatusOverview {
+  overallStatus: "normal" | "partial" | "stale" | "no_data" | string;
+  dataDate?: string | null;
+  stockPoolCount: number;
+  industryCoverageCount: number;
+  latestPriceDate?: string | null;
+  latestSnapshotDate?: string | null;
+  failedStockCount: number;
+  latestDashboardSnapshot?: {
+    data_date?: string;
+    snapshot_type?: string;
+    generated_at?: string;
+  } | null;
+  items: Array<Record<string, unknown>>;
+}
+
 export interface LimitUpStatsItem {
   code: string;
   name: string;
@@ -976,6 +1050,15 @@ export interface DashboardSummary {
   }>;
   recent_reviews: Review[];
   disclaimer: string;
+  snapshot_meta?: {
+    dataDate?: string | null;
+    snapshotType?: "morning" | "midday" | "after_close" | "manual" | "live_fallback" | string;
+    generatedAt?: string | null;
+    sourceJobRunId?: number | null;
+    isHistoricalSnapshot?: boolean;
+    fromDatabaseSnapshot?: boolean;
+    warning?: string;
+  };
 }
 
 export interface PositionDecision {

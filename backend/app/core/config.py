@@ -21,3 +21,7 @@ AKSHARE_STOCK_SCOPE = os.getenv("AKSHARE_STOCK_SCOPE", "tracked")
 AKSHARE_HISTORY_DAYS = int(os.getenv("AKSHARE_HISTORY_DAYS", "180"))
 AKSHARE_ADJUST = os.getenv("AKSHARE_ADJUST", "qfq")
 AKSHARE_SYNC_INDUSTRY = os.getenv("AKSHARE_SYNC_INDUSTRY", "false").lower() in {"1", "true", "yes"}
+CRON_SECRET = os.getenv("CRON_SECRET", "")
+JOB_TIMEZONE = os.getenv("JOB_TIMEZONE", "Asia/Shanghai")
+AUTO_SCHEDULER_ENABLED = os.getenv("AUTO_SCHEDULER_ENABLED", "true").lower() in {"1", "true", "yes"}
+JOB_STALE_MINUTES = int(os.getenv("JOB_STALE_MINUTES", "120"))

@@ -30,29 +30,36 @@ import {
   RiskDistributionChart
 } from "@/components/dashboard/TerminalCharts";
 import { WatchlistTable } from "@/components/dashboard/WatchlistTable";
+import { SystemStatusCard, buildSystemReadiness } from "@/components/dashboard/SystemStatusCard";
+import { FirstRunGuide } from "@/components/onboarding/FirstRunGuide";
 import { api } from "@/lib/api";
 import { formatPctPoint, formatPercent } from "@/lib/format";
-import type { DashboardStrategyPerformance, DashboardSummary, StrategyPerformanceSummary } from "@/lib/types";
+import type { DashboardStrategyPerformance, DashboardSummary, MarketDataSyncStatus, StrategyPerformanceSummary } from "@/lib/types";
 
 export default function DashboardPage() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [performanceSummary, setPerformanceSummary] = useState<StrategyPerformanceSummary | null>(null);
   const [dashboardPerformance, setDashboardPerformance] = useState<DashboardStrategyPerformance | null>(null);
+  const [marketSyncStatus, setMarketSyncStatus] = useState<MarketDataSyncStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showGuideHint, setShowGuideHint] = useState(false);
+  const [startingPipeline, setStartingPipeline] = useState(false);
+  const [pipelineMessage, setPipelineMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [data, performance, strategyRadar] = await Promise.all([
+      const [data, performance, strategyRadar, syncStatus] = await Promise.all([
         api.dashboard(),
         api.strategyPerformanceSummary().catch(() => null),
-        api.dashboardStrategyPerformance().catch(() => null)
+        api.dashboardStrategyPerformance().catch(() => null),
+        api.marketDataSyncStatus().catch(() => null)
       ]);
       setSummary(data);
       setPerformanceSummary(performance);
       setDashboardPerformance(strategyRadar);
+      setMarketSyncStatus(syncStatus);
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败");
     } finally {
@@ -91,6 +98,23 @@ export default function DashboardPage() {
   const riskText = isOffenseRegime
     ? `市场处于 ${marketLabel} 状态，科技成长主线较明确；但策略筛选后可行动候选 ${actionableWatchlist.length} 只，说明选股闸门仍需复核或热点数据覆盖不足。${mainWatchlist.length === 0 ? "当前存在踏空风险：市场强修复但主观察清单为空，请优先检查热点数据覆盖和风控阈值。" : "建议仅小仓试探，并优先人工复核主线候选。"}`
     : `当前市场处于 ${marketLabel} 状态，${highRiskCount} 只股票进入风险观察池，建议先判断今日决策模式，再查看候选标的。`;
+  const readiness = buildSystemReadiness({ summary, performance: performanceSummary, marketSync: marketSyncStatus });
+
+  async function startPipelineFromDashboard() {
+    if (startingPipeline) return;
+    setStartingPipeline(true);
+    setPipelineMessage(null);
+    try {
+      const result = await api.runScheduledJob({ jobName: "after_close_refresh_job", force: true });
+      window.localStorage.setItem("felix-scheduled-job-run-id", String(result.jobRunId));
+      window.dispatchEvent(new Event("quant:job-started"));
+      setPipelineMessage(result.jobRun.reused ? `已接入正在运行的后台任务：任务 ${result.jobRunId}` : `收盘刷新任务已启动：任务 ${result.jobRunId}`);
+    } catch (err) {
+      setPipelineMessage(err instanceof Error ? err.message : "后台刷新任务启动失败，请稍后重试。");
+    } finally {
+      setStartingPipeline(false);
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -141,37 +165,41 @@ export default function DashboardPage() {
         </div>
       )}
 
+      <SystemStatusCard
+        readiness={readiness}
+        onRunStrategy={startPipelineFromDashboard}
+        runningStrategy={startingPipeline}
+        message={pipelineMessage}
+      />
+
+      {summary?.snapshot_meta?.isHistoricalSnapshot && (
+        <div className="rounded-md border border-[var(--border-strong)] bg-[var(--color-warning-soft)] p-3 text-sm leading-6 text-[var(--color-warning)]">
+          当前展示的是 {summary.snapshot_meta.dataDate || "历史"} 数据库快照，仅用于研究复盘。请等待后台自动任务完成，或手动刷新数据与策略。
+        </div>
+      )}
+
+      <FirstRunGuide steps={readiness.steps} />
+
       <RiskBanner text={riskText} />
 
       <DailyDecisionCard summary={summary} />
 
-      <StrategyPerformanceRadar data={dashboardPerformance} />
-
-      <MarketSnapshotCard summary={summary} />
-
-      <WatchlistTable
-        signals={actionableWatchlist}
-        title="可行动候选清单"
-        description="顶部可行动候选的明细来源，包含主观察、热点观察和防御观察，均需人工确认"
-        emptyText="当前没有可行动候选；若市场处于 RiskOn，请重点检查热点数据覆盖、主线映射和动态风控阈值。"
-        badgeLabel={`${actionableWatchlist.length} 只`}
-      />
-
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <MarketRegimeCard summary={summary} />
-        <MarketThemeCard summary={summary} />
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
-        <OpportunityRiskPanel summary={summary} />
-        <FunnelBreakdownCard summary={summary} />
+      <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
+        <MarketSnapshotCard summary={summary} />
+        <WatchlistTable
+          signals={actionableWatchlist}
+          title="可行动候选摘要"
+          description="主观察、热点观察和防御观察的合并摘要；所有标的仍需人工确认"
+          emptyText="当前无可行动候选。若行情已同步，请先运行策略；若策略已运行，请检查筛选条件、热点数据覆盖和风控阈值。"
+          badgeLabel={`${actionableWatchlist.length} 只`}
+        />
       </div>
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard title="今日更新时间" value={summary?.last_run_time || summary?.last_data_date || "-"} hint={summary?.last_data_date || ""} />
-        <MetricCard title="主观察清单" value={loading ? "-" : String(mainWatchlist.length)} hint={mainWatchlist.length ? "可观察候选" : "今日不适合进攻观察"} tone="risk" />
+        <MetricCard title="今日更新时间" value={summary?.last_run_time || summary?.last_data_date || "尚未运行策略"} hint={summary?.last_data_date || "先同步行情并运行策略"} />
+        <MetricCard title="主观察清单" value={loading ? "加载中" : String(mainWatchlist.length)} hint={mainWatchlist.length ? "可观察候选" : "未生成主观察候选"} tone="risk" />
         <MetricCard title="策略初筛漏斗" value={`${funnel?.strategyInitialCandidates ?? summary?.candidate_count ?? 0} -> ${funnel?.finalActionableCandidates ?? mainWatchlist.length}`} hint={`风险池 ${funnel?.riskPool ?? riskPool.length} / 防御 ${funnel?.defensiveWatchlist ?? defensiveWatchlist.length}`} tone="risk" />
-        <MetricCard title="最近回测收益率" value={formatPercent(latestBacktest?.total_return)} hint={latestBacktest?.strategy_name || "暂无回测"} tone="up" />
+        <MetricCard title="最近回测收益率" value={latestBacktest ? formatPercent(latestBacktest.total_return) : "尚未回测"} hint={latestBacktest?.strategy_name || "去回测页执行长期回测"} tone="up" />
       </div>
 
       <WatchlistTable
@@ -199,17 +227,21 @@ export default function DashboardPage() {
         />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <StrategyDistributionPanel summary={summary} />
-        <StrategySourceSummaryCard summary={summary} />
-      </div>
-
-      <StrategyPerformanceSummaryCard summary={performanceSummary} />
-
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <CandidateFreshnessCard summary={summary} />
-        <StrategyHealthCard summary={summary} />
-      </div>
+      <details className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3">
+        <summary className="cursor-pointer text-sm font-semibold text-[var(--text-primary)]">展开策略收益、来源和候选新鲜度</summary>
+        <div className="mt-4 space-y-4">
+          <StrategyPerformanceRadar data={dashboardPerformance} />
+          <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+            <StrategyDistributionPanel summary={summary} />
+            <StrategySourceSummaryCard summary={summary} />
+          </div>
+          <StrategyPerformanceSummaryCard summary={performanceSummary} />
+          <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+            <CandidateFreshnessCard summary={summary} />
+            <StrategyHealthCard summary={summary} />
+          </div>
+        </div>
+      </details>
 
       <div className="grid gap-4 xl:grid-cols-[1.35fr_0.85fr]">
         <WatchlistTable
@@ -222,12 +254,26 @@ export default function DashboardPage() {
         <RiskAlertPanel alerts={summary?.risk_alerts || []} />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-        <DataQualityPanel summary={summary} />
-        <DataCoveragePanel summary={summary} />
+      <details className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3">
+        <summary className="cursor-pointer text-sm font-semibold text-[var(--text-primary)]">高级数据质量与行情状态调试</summary>
+        <div className="mt-4 space-y-4">
+          <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+            <DataQualityPanel summary={summary} />
+            <DataCoveragePanel summary={summary} />
+          </div>
+          <RegimeDebugPanel summary={summary} />
+        </div>
+      </details>
+
+      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+        <MarketRegimeCard summary={summary} />
+        <MarketThemeCard summary={summary} />
       </div>
 
-      <RegimeDebugPanel summary={summary} />
+      <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+        <OpportunityRiskPanel summary={summary} />
+        <FunnelBreakdownCard summary={summary} />
+      </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <PerformanceChart />

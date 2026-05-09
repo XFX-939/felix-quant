@@ -3,16 +3,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, Clock3, Database, Loader2, Play, RefreshCw, RotateCcw, TriangleAlert } from "lucide-react";
 
+import { EmptyState } from "@/components/feedback/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
-import type { FailedSyncRecord, FullMarketSyncJob, Stock, TaskRun } from "@/lib/types";
+import type { DataStatusOverview, FailedSyncRecord, FullMarketSyncJob, JobRun, JobsLatestStatus, MarketDataSyncStatus, Stock, TaskRun } from "@/lib/types";
 
 export default function DataCenterPage() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [job, setJob] = useState<FullMarketSyncJob | null>(null);
+  const [marketStatus, setMarketStatus] = useState<MarketDataSyncStatus | null>(null);
+  const [jobsLatest, setJobsLatest] = useState<JobsLatestStatus | null>(null);
+  const [dataStatus, setDataStatus] = useState<DataStatusOverview | null>(null);
+  const [jobRuns, setJobRuns] = useState<JobRun[]>([]);
   const [tasks, setTasks] = useState<TaskRun[]>([]);
   const [failedRecords, setFailedRecords] = useState<FailedSyncRecord[]>([]);
   const [limit, setLimit] = useState("800");
@@ -38,8 +43,20 @@ export default function DataCenterPage() {
   }, []);
 
   const loadTasks = useCallback(async () => {
-    const data = await api.tasks({ limit: 10 });
+    const [data, jobs, status] = await Promise.all([
+      api.tasks({ limit: 10 }),
+      api.jobsLatest().catch(() => null),
+      api.dataStatus().catch(() => null)
+    ]);
     setTasks(data);
+    setJobsLatest(jobs);
+    setDataStatus(status);
+    if (jobs?.runningRuns?.length) {
+      setJobRuns(jobs.runningRuns);
+    }
+    api.jobRuns({ limit: 20 })
+      .then((result) => setJobRuns(result.runs))
+      .catch(() => undefined);
     return data;
   }, []);
 
@@ -53,6 +70,7 @@ export default function DataCenterPage() {
     loadStocks().catch((err) => setError(err instanceof Error ? err.message : "股票池加载失败"));
     loadJob().catch(() => undefined);
     loadTasks().catch(() => undefined);
+    api.marketDataSyncStatus().then(setMarketStatus).catch(() => undefined);
     loadFailedRecords().catch(() => undefined);
   }, [loadFailedRecords, loadJob, loadStocks, loadTasks]);
 
@@ -78,7 +96,7 @@ export default function DataCenterPage() {
       try {
         const next = await loadTasks();
         if (!next.some((task) => ["pending", "running"].includes(task.status))) {
-          await Promise.all([loadFailedRecords(), loadStocks()]);
+          await Promise.all([loadFailedRecords(), loadStocks(), api.marketDataSyncStatus().then(setMarketStatus).catch(() => undefined)]);
           window.dispatchEvent(new Event("quant:data-updated"));
         }
       } catch (err) {
@@ -126,8 +144,24 @@ export default function DataCenterPage() {
     setError(null);
     try {
       await Promise.all([loadStocks(), loadJob(job?.jobId), loadTasks(), loadFailedRecords()]);
+      await api.marketDataSyncStatus().then(setMarketStatus).catch(() => undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "刷新失败");
+    }
+  }
+
+  async function runScheduledJob(jobName: string) {
+    setStarting(true);
+    setError(null);
+    try {
+      const result = await api.runScheduledJob({ jobName, force: true });
+      window.localStorage.setItem("felix-scheduled-job-run-id", String(result.jobRunId));
+      window.dispatchEvent(new Event("quant:job-started"));
+      await loadTasks();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "后台任务启动失败");
+    } finally {
+      setStarting(false);
     }
   }
 
@@ -156,11 +190,78 @@ export default function DataCenterPage() {
         </div>
       )}
 
+      <Card className="border-[var(--border-strong)]">
+        <CardHeader className="gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <CardTitle>数据健康度总览</CardTitle>
+            <p className="mt-1 text-xs text-[var(--text-tertiary)]">数据中心是首次初始化和日常维护入口，策略运行前先看这里。</p>
+          </div>
+          <Badge tone={stocks.length >= 500 && marketStatus?.status === "success" ? "success" : "warning"}>
+            {stocks.length >= 500 && marketStatus?.status === "success" ? "可用于策略运行" : "需要维护"}
+          </Badge>
+        </CardHeader>
+        <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <Metric label="股票池数量" value={loadingStocks ? "加载中" : `${stocks.length} 只`} hint={stocks.length < 500 ? "建议扩充到 500+ 后再看候选稳定性" : "股票池规模可用"} tone={stocks.length < 500 ? "warning" : "success"} />
+          <Metric label="行业覆盖数量" value={`${industryCount.length} 个`} hint={industryCount.slice(0, 2).map(([name, count]) => `${name} ${count}`).join(" / ") || "待同步行业"} />
+          <Metric label="最近行情日期" value={marketStatus?.usingCacheDate || marketStatus?.latestTradeDate || "未同步"} hint={marketStatus?.latestUpdatedAt || "等待每日行情入库"} tone={marketStatus?.status === "success" ? "success" : "warning"} />
+          <Metric label="最近同步任务" value={jobStatusLabel(job?.status)} hint={job?.message || "无全市场股票池任务"} tone={job?.status === "failed" ? "danger" : job?.status === "completed" ? "success" : "default"} />
+          <Metric label="失败股票" value={`${failedRecords.length} 条`} hint={retryableFailedRecords.length ? "可一键补抓失败股票" : "暂无待补抓记录"} tone={retryableFailedRecords.length ? "warning" : "success"} />
+          <Metric label="策略可用性" value={stocks.length >= 500 && marketStatus?.status === "success" ? "可运行" : "需补齐"} hint={stocks.length >= 500 ? "等待后台自动任务，必要时手动刷新数据与策略" : "先同步股票池和行情"} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <CardTitle>自动任务状态</CardTitle>
+            <p className="mt-1 text-xs text-[var(--text-tertiary)]">
+              后台会在 09:00、11:35、15:15 自动刷新；前端默认读取最近一次成功数据库快照。
+            </p>
+          </div>
+          <Badge tone={jobsLatest?.runningRuns?.length ? "warning" : jobsLatest?.latestSuccess ? "success" : "warning"}>
+            {jobsLatest?.runningRuns?.length ? "后台运行中" : jobsLatest?.latestSuccess ? "已有成功任务" : "等待初始化"}
+          </Badge>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-3 md:grid-cols-3">
+            {["morning_prewarm_job", "midday_refresh_job", "after_close_refresh_job"].map((jobName) => {
+              const run = jobsLatest?.todayRuns?.[jobName];
+              return (
+                <div key={jobName} className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm font-semibold">{scheduledJobName(jobName)}</div>
+                    <Badge tone={run?.status === "success" || run?.status === "partial_success" ? "success" : run?.status === "failed" || run?.status === "failed_timeout" ? "danger" : run?.status === "running" ? "warning" : "default"}>
+                      {jobRunStatusLabel(run?.status)}
+                    </Badge>
+                  </div>
+                  <div className="mt-2 text-xs leading-5 text-[var(--text-tertiary)]">
+                    <div>数据日：{run?.data_date || jobsLatest?.dataDate || "-"}</div>
+                    <div>阶段：{run?.current_stage || "等待后台调度"}</div>
+                    <div>时间：{run?.finished_at || run?.started_at || "-"}</div>
+                  </div>
+                  <Button variant="outline" size="sm" className="mt-3" disabled={starting || Boolean(jobsLatest?.runningRuns?.length)} onClick={() => runScheduledJob(jobName)}>
+                    <RefreshCw className="h-4 w-4" />
+                    手动执行
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <Metric label="总体状态" value={dataStatusLabel(dataStatus?.overallStatus)} hint={dataStatus?.dataDate ? `数据日期 ${dataStatus.dataDate}` : "等待数据库快照"} tone={dataStatus?.overallStatus === "normal" ? "success" : "warning"} />
+            <Metric label="最近快照" value={dataStatus?.latestDashboardSnapshot?.generated_at || "未生成"} hint={dataStatus?.latestDashboardSnapshot?.snapshot_type || "Dashboard 将使用实时兜底"} />
+            <Metric label="失败股票" value={`${dataStatus?.failedStockCount ?? failedRecords.length} 条`} hint="单只失败不会阻塞整条流水线" tone={(dataStatus?.failedStockCount ?? 0) > 0 ? "warning" : "success"} />
+            <Metric label="调度时区" value={jobsLatest?.timezone || "Asia/Shanghai"} hint={jobsLatest?.schedulerEnabled ? "服务端调度已开启" : "服务端调度未开启"} />
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <Metric label="当前股票池" value={loadingStocks ? "-" : `${stocks.length} 只`} hint={stocks.length < 100 ? "样本池过小，会反复出现少数蓝筹" : "可用于更广泛策略扫描"} tone={stocks.length < 100 ? "warning" : "success"} />
-        <Metric label="行业覆盖" value={`${industryCount.length} 个`} hint={industryCount.slice(0, 3).map(([name, count]) => `${name} ${count}`).join(" / ") || "-"} />
+        <Metric label="当前股票池" value={loadingStocks ? "加载中" : `${stocks.length} 只`} hint={stocks.length < 100 ? "样本池过小，会反复出现少数蓝筹" : "可用于更广泛策略扫描"} tone={stocks.length < 100 ? "warning" : "success"} />
+        <Metric label="行业覆盖" value={`${industryCount.length} 个`} hint={industryCount.slice(0, 3).map(([name, count]) => `${name} ${count}`).join(" / ") || "等待行业映射"} />
         <Metric label="同步状态" value={jobStatusLabel(job?.status)} hint={job?.message || "暂无同步任务"} tone={job?.status === "failed" ? "danger" : job?.status === "completed" ? "success" : "default"} />
-        <Metric label="最近同步结果" value={job?.result?.stock_count ? `${job.result.stock_count} 只` : "-"} hint={job?.result?.price_rows ? `日线 ${job.result.price_rows.toLocaleString("zh-CN")} 行 / 重试 ${job.result.retry_count ?? 0} 次` : "等待全市场同步"} />
+        <Metric label="最近同步结果" value={job?.result?.stock_count ? `${job.result.stock_count} 只` : "尚未同步"} hint={job?.result?.price_rows ? `日线 ${job.result.price_rows.toLocaleString("zh-CN")} 行 / 重试 ${job.result.retry_count ?? 0} 次` : "等待全市场同步"} />
       </div>
 
       {runningTask && (
@@ -222,14 +323,19 @@ export default function DataCenterPage() {
               </div>
               {running && (
                 <div className="mt-3 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-card)] p-2 text-xs leading-5 text-[var(--text-secondary)]">
-                  全量同步会逐只拉取日线行情，进度会按股票推进。同步期间请暂缓点击顶部“更新并运行策略”，避免数据写入和策略运行抢占同一个本地数据库。
+                  全量同步会逐只拉取日线行情，进度会按股票推进。同步期间请暂缓手动刷新数据与策略，避免数据写入和策略运行抢占同一个本地数据库。
                 </div>
               )}
-              {job?.error && <div className="mt-3 rounded-md border border-[rgba(230,69,69,0.45)] bg-[var(--color-danger-soft)] p-2 text-xs text-[var(--color-danger)]">{job.error}</div>}
+            {job?.error && <div className="mt-3 rounded-md border border-[rgba(230,69,69,0.45)] bg-[var(--color-danger-soft)] p-2 text-xs text-[var(--color-danger)]">{job.error}</div>}
+              {job?.status === "failed" && (
+                <div className="mt-3 rounded-md border border-[rgba(245,166,35,0.45)] bg-[var(--color-warning-soft)] p-2 text-xs leading-5 text-[var(--color-warning)]">
+                  如果是 AKShare 限流、网络断开或字段变化：建议先把同步数量降到 500-1000，稍后重试；已有失败记录可点击“补抓失败股票”，日常优先使用增量同步。
+                </div>
+              )}
               {job?.status === "completed" && (
                 <div className="mt-3 flex items-start gap-2 rounded-md border border-[rgba(24,160,88,0.45)] bg-[var(--color-success-soft)] p-2 text-xs leading-5 text-[var(--color-success)]">
                   <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-                  同步完成。请点击顶部“更新并运行策略”，让新股票池参与候选生成。
+                  同步完成。后台自动任务会在下一次调度时生成候选；如需立即验证，可点击顶部“手动刷新数据与策略”。
                 </div>
               )}
               {latestFailed.length > 0 && (
@@ -259,10 +365,22 @@ export default function DataCenterPage() {
       <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
         <Card>
           <CardHeader>
-            <CardTitle>最近任务记录</CardTitle>
+            <CardTitle>最近后台任务日志</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
-            {tasks.length === 0 && <div className="text-sm text-[var(--text-tertiary)]">暂无任务记录</div>}
+            {jobRuns.length === 0 && <div className="text-sm text-[var(--text-tertiary)]">暂无后台任务记录</div>}
+            {jobRuns.slice(0, 8).map((run) => (
+              <JobRunRow key={run.id} run={run} />
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>最近异步任务记录</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {tasks.length === 0 && <div className="text-sm text-[var(--text-tertiary)]">暂无异步任务记录</div>}
             {tasks.slice(0, 8).map((task) => (
               <TaskRow key={task.id} task={task} />
             ))}
@@ -304,15 +422,26 @@ export default function DataCenterPage() {
           <CardTitle>当前股票池样本</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
-            {stocks.slice(0, 16).map((stock) => (
-              <div key={stock.code} className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
-                <div className="finance-number text-sm font-semibold text-[var(--color-primary)]">{stock.code}</div>
-                <div className="mt-1 text-sm">{stock.name}</div>
-                <div className="mt-2 text-xs text-[var(--text-tertiary)]">{stock.industry || "未分类"} / {stock.market}</div>
-              </div>
-            ))}
-          </div>
+          {stocks.length ? (
+            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
+              {stocks.slice(0, 16).map((stock) => (
+                <div key={stock.code} className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
+                  <div className="finance-number text-sm font-semibold text-[var(--color-primary)]">{stock.code}</div>
+                  <div className="mt-1 text-sm">{stock.name}</div>
+                  <div className="mt-2 text-xs text-[var(--text-tertiary)]">{stock.industry || "未分类"} / {stock.market}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              variant="data-missing"
+              title="股票池为空"
+              description="候选池、一键诊股、回测和策略运行都需要先建立本地股票池。"
+              reason="首次推荐同步 500-1000 只验证链路稳定，再扩展到 5000+；日常优先增量同步。"
+              primaryAction={{ label: "同步全市场股票池", onClick: startSync, disabled: starting || running }}
+              secondaryAction={{ label: "查看使用教程", href: "/guide#data-sync" }}
+            />
+          )}
         </CardContent>
       </Card>
     </div>
@@ -363,6 +492,30 @@ function TaskProgress({ task }: { task: TaskRun }) {
   );
 }
 
+function JobRunRow({ run }: { run: JobRun }) {
+  const progress = Math.max(0, Math.min(100, run.progress ?? 0));
+  return (
+    <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <Clock3 className="h-4 w-4 text-[var(--color-primary)]" />
+          {scheduledJobName(run.job_name)}
+        </div>
+        <Badge tone={run.status === "success" ? "success" : run.status === "failed" || run.status === "failed_timeout" ? "danger" : run.status === "partial_success" ? "warning" : "default"}>
+          {jobRunStatusLabel(run.status)}
+        </Badge>
+      </div>
+      <div className="mt-2 text-xs text-[var(--text-tertiary)]">{run.current_stage || "-"}</div>
+      <div className="mt-2 grid grid-cols-3 gap-2 text-xs text-[var(--text-secondary)]">
+        <span>进度 {progress.toFixed(0)}%</span>
+        <span>失败 {run.failed_count}</span>
+        <span>耗时 {formatDuration(run.duration_ms || 0)}</span>
+      </div>
+      {run.error_message && <div className="mt-3 rounded-md border border-[rgba(230,69,69,0.45)] bg-[var(--color-danger-soft)] p-2 text-xs text-[var(--color-danger)]">{run.error_message}</div>}
+    </div>
+  );
+}
+
 function TaskRow({ task }: { task: TaskRun }) {
   return (
     <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
@@ -381,6 +534,33 @@ function TaskRow({ task }: { task: TaskRun }) {
       </div>
     </div>
   );
+}
+
+function scheduledJobName(jobName: string) {
+  if (jobName === "morning_prewarm_job") return "09:00 开盘前预热";
+  if (jobName === "midday_refresh_job") return "11:35 午盘刷新";
+  if (jobName === "after_close_refresh_job") return "15:15 收盘后刷新";
+  return jobName;
+}
+
+function jobRunStatusLabel(status?: JobRun["status"]) {
+  if (status === "running") return "运行中";
+  if (status === "pending") return "排队中";
+  if (status === "success") return "成功";
+  if (status === "partial_success") return "部分成功";
+  if (status === "failed") return "失败";
+  if (status === "failed_timeout") return "超时失败";
+  if (status === "skipped_non_trading_day") return "非交易日跳过";
+  if (status === "cancelled") return "已取消";
+  return "未运行";
+}
+
+function dataStatusLabel(status?: string) {
+  if (status === "normal") return "正常";
+  if (status === "partial") return "部分失败";
+  if (status === "stale") return "过期";
+  if (status === "no_data") return "无数据";
+  return "待检查";
 }
 
 function taskTypeLabel(type: string) {

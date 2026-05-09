@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { BarChart3, FilePenLine, Search } from "lucide-react";
 
 import { RiskBadge } from "@/components/RiskBadge";
+import { EmptyState } from "@/components/feedback/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -98,8 +99,16 @@ export function WatchlistTable({
               ))}
               {!signals.length && (
                 <TableRow>
-                  <TableCell colSpan={10} className="py-8 text-center text-[var(--text-tertiary)]">
-                    {emptyText}
+                  <TableCell colSpan={10} className="py-4">
+                    <EmptyState
+                      compact
+                      variant="strategy-not-run"
+                      title={title.includes("风险") ? "暂无风险观察标的" : "暂无可展示候选"}
+                      description={emptyText}
+                      reason="如果今日后台策略快照尚未生成，请先在顶部手动刷新数据与策略；如果已生成，可能是市场环境、风控阈值或筛选条件导致。"
+                      primaryAction={{ label: "手动刷新数据与策略", href: "/" }}
+                      secondaryAction={{ label: "检查数据中心", href: "/data-center" }}
+                    />
                   </TableCell>
                 </TableRow>
               )}
@@ -110,7 +119,16 @@ export function WatchlistTable({
           {signals.map((signal) => (
             <WatchlistMobileCard key={signal.id} signal={signal} />
           ))}
-          {!signals.length && <div className="py-8 text-center text-sm text-[var(--text-tertiary)]">{emptyText}</div>}
+          {!signals.length && (
+            <EmptyState
+              compact
+              variant="strategy-not-run"
+              title="暂无可展示候选"
+              description={emptyText}
+              primaryAction={{ label: "手动刷新数据与策略", href: "/" }}
+              secondaryAction={{ label: "检查数据中心", href: "/data-center" }}
+            />
+          )}
         </div>
       </CardContent>
     </Card>

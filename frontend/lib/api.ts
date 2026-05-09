@@ -5,9 +5,12 @@ import type {
   BacktestDefaults,
   DashboardSummary,
   DashboardStrategyPerformance,
+  DataStatusOverview,
   FailedSyncRecord,
   FlumBacktestResult,
   FullMarketSyncJob,
+  JobRun,
+  JobsLatestStatus,
   LimitUpIndustryHeat,
   LimitUpMarketSentiment,
   LimitUpStatsResponse,
@@ -37,6 +40,10 @@ function getApiBase() {
     const configured = new URL(CONFIGURED_API_BASE, window.location.origin);
     const current = window.location;
     const configuredIsSameOrigin = configured.origin === current.origin;
+    const currentIsLocal =
+      current.hostname === "localhost" ||
+      current.hostname === "127.0.0.1" ||
+      current.hostname === "0.0.0.0";
     const configuredIsLocal =
       configured.hostname === "localhost" ||
       configured.hostname === "127.0.0.1" ||
@@ -45,7 +52,13 @@ function getApiBase() {
     const wouldCrossFromDomainToIp = configuredIsRawIp && configured.hostname !== current.hostname;
     const wouldDowngradeHttps = current.protocol === "https:" && configured.protocol === "http:";
 
-    if (configuredIsSameOrigin || configuredIsLocal || wouldCrossFromDomainToIp || wouldDowngradeHttps) {
+    if (configuredIsSameOrigin) {
+      return "";
+    }
+    if (configuredIsLocal) {
+      return currentIsLocal ? configured.origin : "";
+    }
+    if (wouldCrossFromDomainToIp || wouldDowngradeHttps) {
       return "";
     }
 
@@ -97,8 +110,15 @@ function readErrorMessage(message: string) {
 }
 
 export const api = {
-  dashboard: () => request<DashboardSummary>("/api/dashboard"),
+  dashboard: () => request<DashboardSummary>("/api/dashboard/latest"),
+  dashboardRaw: () => request<DashboardSummary>("/api/dashboard"),
   dashboardStrategyPerformance: () => request<DashboardStrategyPerformance>("/api/dashboard/strategy-performance"),
+  jobsLatest: () => request<JobsLatestStatus>("/api/jobs/latest"),
+  jobRuns: (query?: Record<string, QueryValue>) => request<{ scheduledJobs: unknown[]; runs: JobRun[] }>(withQuery("/api/jobs", query)),
+  jobRun: (runId: number) => request<JobRun>(`/api/jobs/${runId}`),
+  runScheduledJob: (payload: { jobName: string; force?: boolean }) =>
+    request<{ jobRunId: number; jobRun: JobRun }>("/api/jobs/run", { method: "POST", body: JSON.stringify(payload) }),
+  dataStatus: () => request<DataStatusOverview>("/api/data/status"),
   updateData: () => request<{ message: string; data: unknown; strategy: unknown }>("/api/data/update", { method: "POST" }),
   startFullMarketSync: (limit?: number) => request<FullMarketSyncJob>(withQuery("/api/data/sync/full-market", { limit }), { method: "POST" }),
   fullMarketSyncStatus: (jobId?: string | null) => request<FullMarketSyncJob>(withQuery("/api/data/sync/full-market", { job_id: jobId || undefined })),

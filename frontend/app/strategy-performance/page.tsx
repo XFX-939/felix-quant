@@ -10,6 +10,7 @@ import {
   StrategyPerformanceHeatmap,
   StrategyReturnBarChart
 } from "@/components/charts/StrategyPerformanceCharts";
+import { EmptyState } from "@/components/feedback/EmptyState";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -213,6 +214,8 @@ export default function StrategyPerformancePage() {
         策略收益来自后端 `strategy_nav_daily` 与 `strategy_performance_summary`，由回测结果或策略净值预聚合生成。样本不足和数据不足不作为策略有效性结论。
       </div>
 
+      <PerformanceDataStatus summary={summary} />
+
       <DataRepairCard
         validation={validation}
         disabled={task ? ["pending", "running"].includes(task.status) : false}
@@ -221,14 +224,14 @@ export default function StrategyPerformancePage() {
       />
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <OverviewCard title="近1月最佳策略" value={overview?.best1M?.strategyName || "--"} hint={formatOptionalPercent(overview?.best1M?.returnRate)} />
-        <OverviewCard title="近3月最佳策略" value={overview?.best3M?.strategyName || "--"} hint={formatOptionalPercent(overview?.best3M?.returnRate)} />
-        <OverviewCard title="近半年最佳策略" value={overview?.best6M?.strategyName || "--"} hint={formatOptionalPercent(overview?.best6M?.returnRate)} />
-        <OverviewCard title="近1年最佳策略" value={overview?.best1Y?.strategyName || "--"} hint={formatOptionalPercent(overview?.best1Y?.returnRate)} />
-        <OverviewCard title="启用策略数量" value={String(overview?.enabledStrategyCount ?? "--")} hint="当前配置启用" />
-        <OverviewCard title="有效回测策略" value={String(overview?.validBacktestStrategyCount ?? "--")} hint="回测可信度为可信" />
-        <OverviewCard title="样本不足策略" value={String(overview?.insufficientSampleCount ?? "--")} hint="交易次数或覆盖率不足" />
-        <OverviewCard title="最大回撤最高" value={overview?.maxDrawdownStrategy?.strategyName || "--"} hint={formatOptionalPercent(overview?.maxDrawdownStrategy?.maxDrawdown)} tone="risk" />
+        <OverviewCard title="近1月最佳策略" value={overview?.best1M?.strategyName || "尚未生成"} hint={overview?.best1M ? formatOptionalPercent(overview.best1M.returnRate) : "先生成策略净值"} />
+        <OverviewCard title="近3月最佳策略" value={overview?.best3M?.strategyName || "尚未生成"} hint={overview?.best3M ? formatOptionalPercent(overview.best3M.returnRate) : "先执行长期回测"} />
+        <OverviewCard title="近半年最佳策略" value={overview?.best6M?.strategyName || "尚未生成"} hint={overview?.best6M ? formatOptionalPercent(overview.best6M.returnRate) : "等待收益汇总"} />
+        <OverviewCard title="近1年最佳策略" value={overview?.best1Y?.strategyName || "尚未生成"} hint={overview?.best1Y ? formatOptionalPercent(overview.best1Y.returnRate) : "等待收益汇总"} />
+        <OverviewCard title="启用策略数量" value={summary ? String(overview?.enabledStrategyCount ?? 0) : "加载中"} hint="当前配置启用" />
+        <OverviewCard title="有效回测策略" value={summary ? String(overview?.validBacktestStrategyCount ?? 0) : "加载中"} hint="回测可信度为可信" />
+        <OverviewCard title="样本不足策略" value={summary ? String(overview?.insufficientSampleCount ?? 0) : "加载中"} hint="交易次数或覆盖率不足" />
+        <OverviewCard title="最大回撤最高" value={overview?.maxDrawdownStrategy?.strategyName || "尚未生成"} hint={overview?.maxDrawdownStrategy ? formatOptionalPercent(overview.maxDrawdownStrategy.maxDrawdown) : "无可比样本"} tone="risk" />
       </section>
 
       <Card>
@@ -342,8 +345,15 @@ export default function StrategyPerformancePage() {
                 ))}
                 {!filteredRows.length && (
                   <tr>
-                    <Td colSpan={12} className="py-10 text-center text-[var(--text-tertiary)]">
-                      {loading ? "正在加载策略收益..." : "暂无策略收益数据。"}
+                    <Td colSpan={12} className="py-4">
+                      <EmptyState
+                        variant={loading ? "loading" : error ? "error" : "backtest-missing"}
+                        title={loading ? "正在加载策略收益" : "暂无可用策略收益"}
+                        description={loading ? "正在读取 strategy_performance_summary 和策略净值缓存。" : "当前缺少 strategy_nav_daily 或 strategy_performance_summary，因此不能用 0.0% 伪装收益。"}
+                        reason={error || "请先生成策略净值、执行长期回测，或刷新收益汇总。样本不足策略不会参与有效性排序。"}
+                        primaryAction={{ label: "生成策略净值", onClick: generateNav, disabled: Boolean(task && ["pending", "running"].includes(task.status)) }}
+                        secondaryAction={{ label: "执行长期回测", href: "/backtest" }}
+                      />
                     </Td>
                   </tr>
                 )}
@@ -427,6 +437,39 @@ function OverviewCard({ title, value, hint, tone }: { title: string; value: stri
         <div className="text-xs text-[var(--text-tertiary)]">{title}</div>
         <div className={cn("mt-2 truncate text-lg font-semibold", tone === "risk" ? "text-[var(--color-success)]" : "text-[var(--color-primary)]")}>{value}</div>
         <div className="mt-1 truncate text-xs text-[var(--text-tertiary)]">{hint || "--"}</div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function PerformanceDataStatus({ summary }: { summary: StrategyPerformanceSummary | null }) {
+  const validation = summary?.validation;
+  const navReady = Boolean(validation && validation.missingNavStrategies.length === 0);
+  const summaryReady = Boolean(validation && validation.missingSummaryStrategies.length === 0);
+  const latest = validation?.latestTradeDate || summary?.updatedAt || "尚未生成";
+  const validCount = summary?.overview.validBacktestStrategyCount ?? 0;
+  const insufficient = summary?.overview.insufficientSampleCount ?? validation?.insufficientSampleItems.length ?? 0;
+  const reason = validation?.warnings.slice(0, 2).join("；") || "收益数据链路正常时，表格和走势图会从后端预聚合表读取。";
+  return (
+    <Card>
+      <CardHeader className="gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <CardTitle>收益数据链路状态</CardTitle>
+          <p className="mt-1 text-xs text-[var(--text-tertiary)]">判断收益图表为何为空，以及下一步应该生成哪类数据。</p>
+        </div>
+        <Badge tone={validation?.isHealthy ? "success" : "warning"}>{validation?.isHealthy ? "链路可用" : "需要补齐"}</Badge>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid gap-2 md:grid-cols-5">
+          <RepairMetric label="strategy_nav_daily" value={navReady ? "已覆盖" : `缺 ${validation?.missingNavStrategies.length ?? 0} 个`} />
+          <RepairMetric label="performance_summary" value={summaryReady ? "已生成" : `缺 ${validation?.missingSummaryStrategies.length ?? 0} 个`} />
+          <RepairMetric label="最近生成时间" value={latest} />
+          <RepairMetric label="有效策略数量" value={`${validCount} 个`} />
+          <RepairMetric label="样本不足策略" value={`${insufficient} 个`} />
+        </div>
+        <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3 text-xs leading-5 text-[var(--text-secondary)]">
+          {reason}
+        </div>
       </CardContent>
     </Card>
   );

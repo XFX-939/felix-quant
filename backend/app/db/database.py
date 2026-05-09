@@ -308,6 +308,88 @@ def initialize_database() -> None:
             CREATE INDEX IF NOT EXISTS idx_task_runs_type_date_status
                 ON task_runs(task_type, trade_date, status);
 
+            CREATE TABLE IF NOT EXISTS scheduled_jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_name TEXT NOT NULL UNIQUE,
+                job_type TEXT NOT NULL,
+                cron_expression TEXT NOT NULL,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                timezone TEXT NOT NULL DEFAULT 'Asia/Shanghai',
+                description TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS job_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                job_name TEXT NOT NULL,
+                job_type TEXT NOT NULL,
+                trigger_type TEXT NOT NULL DEFAULT 'auto',
+                status TEXT NOT NULL,
+                scheduled_at TEXT,
+                started_at TEXT,
+                finished_at TEXT,
+                duration_ms INTEGER NOT NULL DEFAULT 0,
+                progress REAL NOT NULL DEFAULT 0,
+                current_stage TEXT NOT NULL DEFAULT '',
+                success_count INTEGER NOT NULL DEFAULT 0,
+                failed_count INTEGER NOT NULL DEFAULT 0,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                data_date TEXT,
+                snapshot_type TEXT NOT NULL DEFAULT '',
+                error_message TEXT,
+                result_summary TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_job_runs_name_date_status
+                ON job_runs(job_name, data_date, status);
+
+            CREATE INDEX IF NOT EXISTS idx_job_runs_created
+                ON job_runs(created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS data_sync_status (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                data_type TEXT NOT NULL,
+                data_date TEXT,
+                last_success_at TEXT,
+                last_attempt_at TEXT,
+                status TEXT NOT NULL DEFAULT 'missing',
+                total_count INTEGER NOT NULL DEFAULT 0,
+                success_count INTEGER NOT NULL DEFAULT 0,
+                failed_count INTEGER NOT NULL DEFAULT 0,
+                source TEXT NOT NULL DEFAULT '',
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(data_type, data_date)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_data_sync_status_type_date
+                ON data_sync_status(data_type, data_date);
+
+            CREATE TABLE IF NOT EXISTS dashboard_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                data_date TEXT NOT NULL,
+                snapshot_type TEXT NOT NULL,
+                generated_at TEXT NOT NULL,
+                market_status TEXT NOT NULL DEFAULT '',
+                market_summary_json TEXT NOT NULL DEFAULT '{}',
+                candidate_summary_json TEXT NOT NULL DEFAULT '{}',
+                risk_summary_json TEXT NOT NULL DEFAULT '{}',
+                strategy_summary_json TEXT NOT NULL DEFAULT '{}',
+                performance_summary_json TEXT NOT NULL DEFAULT '{}',
+                data_quality_json TEXT NOT NULL DEFAULT '{}',
+                summary_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                UNIQUE(data_date, snapshot_type)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_dashboard_snapshots_latest
+                ON dashboard_snapshots(data_date DESC, generated_at DESC);
+
             CREATE TABLE IF NOT EXISTS failed_sync_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 trade_date TEXT NOT NULL,
@@ -528,6 +610,9 @@ def initialize_database() -> None:
         _ensure_column(conn, "task_runs", "batch_mode", "INTEGER NOT NULL DEFAULT 0")
         _ensure_column(conn, "task_runs", "strategy_name", "TEXT")
         _ensure_column(conn, "task_runs", "task_group_name", "TEXT")
+        _ensure_column(conn, "job_runs", "snapshot_type", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(conn, "job_runs", "result_summary", "TEXT NOT NULL DEFAULT '{}'")
+        _ensure_column(conn, "dashboard_snapshots", "summary_json", "TEXT NOT NULL DEFAULT '{}'")
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_task_runs_parent

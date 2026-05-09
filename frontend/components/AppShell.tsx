@@ -34,24 +34,44 @@ import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/api";
-import type { MarketDataSyncStatus, TaskRun } from "@/lib/types";
+import type { JobRun, JobsLatestStatus, MarketDataSyncStatus, TaskRun } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const navItems = [
-  { href: "/", label: "Dashboard", icon: Home },
-  { href: "/candidates", label: "候选池", icon: ListChecks },
-  { href: "/stock-inspector", label: "一键诊股", icon: Search },
-  { href: "/limit-up-stats", label: "连板统计", icon: Flame },
-  { href: "/strategies", label: "策略", icon: Gauge },
-  { href: "/strategy-performance", label: "策略收益", icon: BarChart3 },
-  { href: "/backtest", label: "回测", icon: TestTube2 },
-  { href: "/risk", label: "风控", icon: ShieldAlert },
-  { href: "/reviews", label: "复盘", icon: ClipboardList },
-  { href: "/alpha-lab", label: "AlphaLab", icon: FlaskConical },
-  { href: "/reports", label: "研究报告", icon: FileText },
-  { href: "/guide", label: "使用教程", icon: BookOpen },
-  { href: "/data-center", label: "数据中心", icon: Database },
-  { href: "/settings", label: "设置", icon: Settings }
+const navGroups = [
+  {
+    title: "每日决策",
+    items: [
+      { href: "/", label: "Dashboard", icon: Home },
+      { href: "/candidates", label: "候选池", icon: ListChecks },
+      { href: "/stock-inspector", label: "一键诊股", icon: Search },
+      { href: "/limit-up-stats", label: "连板统计", icon: Flame }
+    ]
+  },
+  {
+    title: "策略验证",
+    items: [
+      { href: "/strategies", label: "策略", icon: Gauge },
+      { href: "/strategy-performance", label: "策略收益", icon: BarChart3 },
+      { href: "/backtest", label: "回测", icon: TestTube2 },
+      { href: "/alpha-lab", label: "AlphaLab", icon: FlaskConical }
+    ]
+  },
+  {
+    title: "风险复盘",
+    items: [
+      { href: "/risk", label: "风控", icon: ShieldAlert },
+      { href: "/reviews", label: "复盘", icon: ClipboardList },
+      { href: "/reports", label: "研究报告", icon: FileText }
+    ]
+  },
+  {
+    title: "系统管理",
+    items: [
+      { href: "/data-center", label: "数据中心", icon: Database },
+      { href: "/guide", label: "使用教程", icon: BookOpen },
+      { href: "/settings", label: "设置", icon: Settings }
+    ]
+  }
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -82,11 +102,16 @@ function Header() {
   const [marketSyncStatus, setMarketSyncStatus] = useState<MarketDataSyncStatus | null>(null);
   const [marketSyncVisible, setMarketSyncVisible] = useState(false);
   const [marketSyncStarting, setMarketSyncStarting] = useState(false);
+  const [jobsLatest, setJobsLatest] = useState<JobsLatestStatus | null>(null);
+  const [manualJobRun, setManualJobRun] = useState<JobRun | null>(null);
+  const [manualJobVisible, setManualJobVisible] = useState(false);
+  const [manualJobError, setManualJobError] = useState<string | null>(null);
 
   const loadStatus = useCallback(async () => {
     try {
-      const summary = await api.dashboard();
-      setLastUpdate(summary.last_run_time || summary.last_data_date || "-");
+      const [summary, jobs] = await Promise.all([api.dashboard(), api.jobsLatest().catch(() => null)]);
+      setLastUpdate(summary.snapshot_meta?.generatedAt || jobs?.latestSuccess?.finished_at || summary.last_run_time || summary.last_data_date || "-");
+      setJobsLatest(jobs);
     } catch {
       setLastUpdate("后端未连接");
     }
@@ -107,17 +132,12 @@ function Header() {
 
   useEffect(() => {
     let cancelled = false;
-    async function bootMarketSync() {
+    async function inspectMarketSync() {
       try {
         const status = await loadMarketSyncStatus();
         if (cancelled) return;
         if (status.needsSync) {
-          setMarketSyncStarting(true);
           setMarketSyncVisible(true);
-          const started = await api.startMarketDataSync({ force: false });
-          if (!cancelled) {
-            setMarketSyncStatus(applyMarketTaskStatus(started.status, started.task));
-          }
         }
       } catch (err) {
         if (!cancelled) {
@@ -142,7 +162,7 @@ function Header() {
         if (!cancelled) setMarketSyncStarting(false);
       }
     }
-    bootMarketSync();
+    inspectMarketSync();
     window.addEventListener("quant:data-updated", loadMarketSyncStatus);
     return () => {
       cancelled = true;
@@ -225,6 +245,87 @@ function Header() {
   }, []);
 
   useEffect(() => {
+    const savedJobId = window.localStorage.getItem("felix-scheduled-job-run-id");
+    if (!savedJobId) return;
+    api
+      .jobRun(Number(savedJobId))
+      .then((run) => {
+        if (["pending", "running"].includes(run.status)) {
+          setManualJobRun(run);
+          setManualJobVisible(true);
+        } else {
+          window.localStorage.removeItem("felix-scheduled-job-run-id");
+        }
+      })
+      .catch(() => window.localStorage.removeItem("felix-scheduled-job-run-id"));
+  }, []);
+
+  useEffect(() => {
+    async function attachStartedJob() {
+      const savedJobId = window.localStorage.getItem("felix-scheduled-job-run-id");
+      if (!savedJobId) return;
+      try {
+        const run = await api.jobRun(Number(savedJobId));
+        if (["pending", "running"].includes(run.status)) {
+          setManualJobRun(run);
+          setManualJobVisible(true);
+          setManualJobError(null);
+          setUpdateMessage(`已接入后台自动任务：${jobDisplayName(run.job_name)} #${run.id}`);
+        }
+      } catch {
+        window.localStorage.removeItem("felix-scheduled-job-run-id");
+      }
+    }
+    window.addEventListener("quant:job-started", attachStartedJob);
+    return () => window.removeEventListener("quant:job-started", attachStartedJob);
+  }, []);
+
+  useEffect(() => {
+    if (!manualJobRun || !["pending", "running"].includes(manualJobRun.status)) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const next = await api.jobRun(manualJobRun.id);
+        setManualJobRun(next);
+        setManualJobError(next.error_message || null);
+        setUpdateMessage(`${jobDisplayName(next.job_name)} ${getJobProgress(next).toFixed(0)}%：${formatJobStage(next)}`);
+        if (!["pending", "running"].includes(next.status)) {
+          window.localStorage.removeItem("felix-scheduled-job-run-id");
+          await loadStatus();
+          if (next.status === "success" || next.status === "partial_success") {
+            window.dispatchEvent(new Event("quant:data-updated"));
+            setUpdateMessage(next.status === "partial_success" ? "后台任务完成，存在部分数据失败" : "后台任务完成，数据库快照已刷新");
+            window.setTimeout(() => setManualJobVisible(false), 3000);
+          }
+        }
+      } catch (err) {
+        setManualJobError(err instanceof Error ? err.message : "后台任务状态刷新失败");
+        setUpdateMessage("后台任务状态刷新失败");
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [loadStatus, manualJobRun]);
+
+  useEffect(() => {
+    async function attachStartedPipeline() {
+      const savedTaskId = window.localStorage.getItem("felix-daily-pipeline-task-id");
+      if (!savedTaskId) return;
+      try {
+        const task = await api.task(Number(savedTaskId));
+        if (task.task_type === "run_daily_pipeline" && ["pending", "running"].includes(task.status)) {
+          setPipelineTask(task);
+          setPipelineVisible(true);
+          setPipelineError(null);
+          setUpdateMessage(`已接入正在运行的每日流水线：任务 ${task.id}`);
+        }
+      } catch {
+        window.localStorage.removeItem("felix-daily-pipeline-task-id");
+      }
+    }
+    window.addEventListener("quant:pipeline-started", attachStartedPipeline);
+    return () => window.removeEventListener("quant:pipeline-started", attachStartedPipeline);
+  }, []);
+
+  useEffect(() => {
     if (!pipelineTask || !["pending", "running"].includes(pipelineTask.status)) return;
     const timer = window.setInterval(async () => {
       try {
@@ -250,37 +351,31 @@ function Header() {
   }, [loadStatus, pipelineTask]);
 
   async function handleUpdate() {
-    if (startingPipeline || isTaskRunning(pipelineTask)) return;
+    if (startingPipeline || isJobRunning(manualJobRun) || isTaskRunning(pipelineTask)) return;
     setStartingPipeline(true);
     setUpdateMessage(null);
-    setPipelineError(null);
-    setPipelineVisible(true);
-    setPipelineTask(null);
+    setManualJobError(null);
+    setManualJobVisible(true);
+    setManualJobRun(null);
     try {
-      const syncJob = await api.fullMarketSyncStatus();
-      if (syncJob.status === "pending" || syncJob.status === "running") {
-        const message = "全市场同步中，完成后再运行策略";
-        setPipelineError(message);
-        setUpdateMessage(message);
-        return;
-      }
-      const result = await api.runDailyPipeline();
-      setPipelineTask(result.task);
-      setPipelineVisible(true);
-      window.localStorage.setItem("felix-daily-pipeline-task-id", String(result.taskId));
-      setUpdateMessage(result.task.reused ? `已接入正在运行的每日流水线：任务 ${result.taskId}` : `每日流水线已启动：任务 ${result.taskId}`);
+      const result = await api.runScheduledJob({ jobName: "after_close_refresh_job", force: true });
+      setManualJobRun(result.jobRun);
+      setManualJobVisible(true);
+      window.localStorage.setItem("felix-scheduled-job-run-id", String(result.jobRunId));
+      setUpdateMessage(result.jobRun.reused ? `已接入正在运行的后台任务：${result.jobRunId}` : `收盘刷新任务已启动：${result.jobRunId}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : "更新失败";
-      setPipelineError(message);
+      setManualJobError(message);
       setUpdateMessage(message);
     } finally {
       setStartingPipeline(false);
     }
   }
 
-  const pipelineRunning = startingPipeline || isTaskRunning(pipelineTask);
-  const pipelineProgress = pipelineTask ? getTaskProgress(pipelineTask) : startingPipeline ? 0 : 0;
-  const pipelineButtonText = pipelineRunning ? `运行中 ${pipelineProgress.toFixed(0)}%` : pipelineTask?.status === "failed" || pipelineError ? "重新运行" : "更新并运行策略";
+  const manualJobRunning = startingPipeline || isJobRunning(manualJobRun);
+  const pipelineRunning = manualJobRunning || isTaskRunning(pipelineTask);
+  const manualJobProgress = manualJobRun ? getJobProgress(manualJobRun) : startingPipeline ? 0 : 0;
+  const pipelineButtonText = manualJobRunning ? `刷新中 ${manualJobProgress.toFixed(0)}%` : manualJobRun?.status === "failed" || manualJobError ? "重新运行" : "手动刷新数据与策略";
 
   return (
     <header className="sticky top-0 z-20 border-b border-[var(--border-subtle)] bg-[var(--bg-header)]/95 backdrop-blur">
@@ -319,8 +414,15 @@ function Header() {
           )}
           <div className="hidden items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-tertiary)] md:flex">
             <RefreshCw className="h-3.5 w-3.5 text-[var(--color-primary)]" aria-hidden />
-            <span className="hidden xl:inline">数据更新时间</span>
+            <span className="hidden xl:inline">最近自动刷新</span>
             <span className="finance-number max-w-44 truncate text-[var(--text-secondary)]">{lastUpdate}</span>
+          </div>
+          <div className="hidden items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-tertiary)] xl:flex">
+            <DatabaseZap className="h-3.5 w-3.5 text-[var(--color-primary)]" aria-hidden />
+            <span>后台任务</span>
+            <span className={cn("rounded-sm px-1.5 py-0.5", jobsLatest?.runningRuns?.length ? "bg-[var(--color-warning-soft)] text-[var(--color-warning)]" : jobsLatest?.latestFailure && !jobsLatest.latestSuccess ? "bg-[var(--color-danger-soft)] text-[var(--color-danger)]" : "bg-[var(--color-success-soft)] text-[var(--color-success)]")}>
+              {jobsLatest?.runningRuns?.length ? "运行中" : jobsLatest?.latestSuccess ? "已生成快照" : "待初始化"}
+            </span>
           </div>
           <div className="hidden items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-card)] px-3 py-2 text-xs text-[var(--text-tertiary)] lg:flex">
             <Flame className="h-3.5 w-3.5 text-[var(--color-primary)]" aria-hidden />
@@ -346,6 +448,15 @@ function Header() {
           </Button>
         </div>
       </div>
+      {manualJobVisible && (
+        <JobRunProgress
+          run={manualJobRun}
+          starting={startingPipeline}
+          error={manualJobError}
+          onRetry={handleUpdate}
+          onDismiss={() => setManualJobVisible(false)}
+        />
+      )}
       {pipelineVisible && (
         <DailyPipelineProgress
           task={pipelineTask}
@@ -364,6 +475,82 @@ function Header() {
         />
       )}
     </header>
+  );
+}
+
+function JobRunProgress({
+  run,
+  starting,
+  error,
+  onRetry,
+  onDismiss
+}: {
+  run: JobRun | null;
+  starting: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onDismiss: () => void;
+}) {
+  const progress = run ? getJobProgress(run) : starting ? 0 : 0;
+  const running = starting || isJobRunning(run);
+  const failed = Boolean(error && !running) || run?.status === "failed" || run?.status === "failed_timeout" || run?.status === "cancelled";
+  const completed = run?.status === "success" || run?.status === "partial_success";
+  const stageText = failed ? error || run?.error_message || "后台任务执行失败" : run ? formatJobStage(run) : "任务创建";
+  const barClassName = failed ? "bg-[var(--color-danger)]" : completed ? "bg-[var(--color-success)]" : "bg-[var(--color-primary)]";
+
+  return (
+    <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-header)] px-3 pb-3 md:px-5 lg:px-6">
+      <div className="mx-auto w-full max-w-[1540px] rounded-md border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3 shadow-[0_10px_30px_rgba(15,23,42,0.08)]">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                {failed ? (
+                  <AlertTriangle className="h-4 w-4 text-[var(--color-danger)]" />
+                ) : completed ? (
+                  <CheckCircle2 className="h-4 w-4 text-[var(--color-success)]" />
+                ) : (
+                  <RefreshCw className={cn("h-4 w-4 text-[var(--color-primary)]", running && "animate-spin")} />
+                )}
+                {run ? jobDisplayName(run.job_name) : "后台刷新任务"}
+              </div>
+              <Badge tone={failed ? "danger" : completed ? "success" : "warning"}>{jobStatusLabel(run?.status, starting)}</Badge>
+              {run?.id && <span className="finance-number text-xs text-[var(--text-tertiary)]">任务 {run.id}</span>}
+            </div>
+            <div className="mt-2 flex items-center justify-between gap-3 text-xs text-[var(--text-secondary)]">
+              <span className="line-clamp-1">{stageText}</span>
+              <span className={cn("finance-number shrink-0 font-semibold", failed ? "text-[var(--color-danger)]" : completed ? "text-[var(--color-success)]" : "text-[var(--color-primary)]")}>{progress.toFixed(0)}%</span>
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-[var(--bg-elevated)]">
+              <div className={cn("h-full rounded-full transition-all duration-500", barClassName)} style={{ width: `${progress}%` }} />
+            </div>
+            <div className="mt-3 grid gap-2 text-xs text-[var(--text-tertiary)] sm:grid-cols-2 xl:grid-cols-5">
+              <span>数据日：{run?.data_date || "-"}</span>
+              <span>成功：{run?.success_count ?? 0}</span>
+              <span>失败：{run?.failed_count ?? 0}</span>
+              <span>重试：{run?.retry_count ?? 0}</span>
+              <span className="flex items-center gap-1">
+                <Clock3 className="h-3.5 w-3.5" />
+                {run?.duration_ms ? `${(run.duration_ms / 1000).toFixed(1)}s` : running ? "运行中" : "-"}
+              </span>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {failed && (
+              <Button size="sm" onClick={onRetry}>
+                <RefreshCw className="h-4 w-4" />
+                手动重跑
+              </Button>
+            )}
+            {!running && (
+              <Button variant="ghost" size="sm" onClick={onDismiss}>
+                收起
+              </Button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -475,7 +662,7 @@ function DailyPipelineProgress({
                 ) : (
                   <RefreshCw className={cn("h-4 w-4 text-[var(--color-primary)]", running && "animate-spin")} />
                 )}
-                更新并运行策略
+                每日决策流水线
               </div>
               <Badge tone={failed ? "danger" : completed ? "success" : "warning"}>{taskStatusLabel(task?.status, starting)}</Badge>
               {task?.id && <span className="finance-number text-xs text-[var(--text-tertiary)]">任务 {task.id}</span>}
@@ -521,6 +708,48 @@ function DailyPipelineProgress({
 
 function isTaskRunning(task: TaskRun | null) {
   return Boolean(task && ["pending", "running"].includes(task.status));
+}
+
+function isJobRunning(run: JobRun | null) {
+  return Boolean(run && ["pending", "running"].includes(run.status));
+}
+
+function getJobProgress(run: JobRun) {
+  const rawProgress = Number(run.progress || 0);
+  const progress = Number.isFinite(rawProgress) ? rawProgress : 0;
+  if (run.status === "success" || run.status === "partial_success") return 100;
+  if (run.status === "failed" || run.status === "failed_timeout" || run.status === "cancelled") return Math.max(0, Math.min(100, progress));
+  return Math.max(0, Math.min(99, progress));
+}
+
+function formatJobStage(run: JobRun) {
+  if (run.status === "success") return "后台任务完成，数据库快照已刷新";
+  if (run.status === "partial_success") return "后台任务完成，存在部分数据失败";
+  if (run.status === "failed") return run.error_message || "后台任务失败";
+  if (run.status === "failed_timeout") return run.error_message || "后台任务超时，已自动标记失败";
+  if (run.status === "skipped_non_trading_day") return "非交易日，保留最近可用快照";
+  const stage = run.current_stage || "任务创建";
+  return stage.includes("：") ? stage.split("：").slice(1).join("：") : stage;
+}
+
+function jobStatusLabel(status?: JobRun["status"], starting?: boolean) {
+  if (starting) return "任务创建";
+  if (status === "pending") return "排队中";
+  if (status === "running") return "运行中";
+  if (status === "success") return "已完成";
+  if (status === "partial_success") return "部分完成";
+  if (status === "failed") return "失败";
+  if (status === "failed_timeout") return "超时失败";
+  if (status === "skipped_non_trading_day") return "非交易日跳过";
+  if (status === "cancelled") return "已取消";
+  return "准备中";
+}
+
+function jobDisplayName(jobName: string) {
+  if (jobName === "morning_prewarm_job") return "开盘前预热任务";
+  if (jobName === "midday_refresh_job") return "午盘刷新任务";
+  if (jobName === "after_close_refresh_job") return "收盘后刷新任务";
+  return jobName || "后台刷新任务";
 }
 
 function getTaskProgress(task: TaskRun) {
@@ -610,30 +839,17 @@ function Sidebar({ pathname }: { pathname: string }) {
           <div className="text-xs uppercase tracking-[0.18em] text-[var(--text-tertiary)]">QUANT RESEARCH TERMINAL</div>
         </div>
       </div>
-      <nav className="space-y-1 p-3">
-        {navItems.map((item) => {
-          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "group relative flex h-10 items-center gap-3 rounded-md px-3 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--color-primary-soft)] hover:text-[var(--color-primary)]",
-                active && "bg-[var(--color-primary-soft)] text-[var(--color-primary)]"
-              )}
-            >
-              <span
-                className={cn(
-                  "absolute left-0 top-2 h-6 w-0.5 rounded-r bg-transparent transition-colors",
-                  active && "bg-[var(--color-primary)]"
-                )}
-              />
-              <Icon className="h-4 w-4" aria-hidden />
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
+      <nav className="space-y-4 overflow-y-auto p-3 pb-24">
+        {navGroups.map((group) => (
+          <div key={group.title}>
+            <div className="px-3 pb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-tertiary)]">{group.title}</div>
+            <div className="space-y-1">
+              {group.items.map((item) => (
+                <NavLink key={item.href} item={item} pathname={pathname} />
+              ))}
+            </div>
+          </div>
+        ))}
       </nav>
       <div className="absolute bottom-0 left-0 right-0 border-t border-[var(--border-subtle)] p-4 text-[11px] leading-5 text-[var(--text-tertiary)]">
         本系统仅用于个人量化研究和投资复盘，不构成任何投资建议。投资有风险，决策需谨慎。
@@ -643,31 +859,72 @@ function Sidebar({ pathname }: { pathname: string }) {
 }
 
 function MobileNav({ pathname }: { pathname: string }) {
+  const [open, setOpen] = useState(false);
+  const current = navGroups.flatMap((group) => group.items).find((item) => item.href === "/" ? pathname === "/" : pathname.startsWith(item.href));
   return (
     <div className="border-b border-[var(--border-subtle)] bg-[var(--bg-header)] px-3 py-2 lg:hidden">
-      <div className="flex items-center gap-2 overflow-x-auto scrollbar-thin">
-        <div className="flex h-9 min-w-9 items-center justify-center rounded-md border border-[var(--border-subtle)] text-[var(--text-tertiary)]">
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          className="flex h-9 items-center gap-2 rounded-md border border-[var(--border-subtle)] px-3 text-sm text-[var(--text-secondary)]"
+          onClick={() => setOpen(true)}
+        >
           <Menu className="h-4 w-4" aria-hidden />
-        </div>
-        {navItems.map((item) => {
-          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={cn(
-                "inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-md border border-transparent px-2 text-xs text-[var(--text-tertiary)]",
-                active && "border-[var(--border-strong)] bg-[var(--color-primary-soft)] text-[var(--color-primary)]"
-              )}
-              aria-label={item.label}
-            >
-              <Icon className="h-4 w-4" aria-hidden />
-              <span className="hidden min-[430px]:inline">{item.label}</span>
-            </Link>
-          );
-        })}
+          导航
+        </button>
+        <div className="truncate text-sm font-medium text-[var(--color-primary)]">{current?.label || "Felix量化"}</div>
       </div>
+      {open && (
+        <div className="fixed inset-0 z-50 bg-black/45" role="dialog" aria-modal="true">
+          <button className="absolute inset-0 cursor-default" aria-label="关闭导航" onClick={() => setOpen(false)} type="button" />
+          <aside className="relative h-full w-[82vw] max-w-80 overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--bg-sidebar)] p-3 shadow-[var(--shadow-card)]">
+            <div className="mb-3 flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
+              <div>
+                <div className="font-semibold">Felix量化</div>
+                <div className="text-xs uppercase tracking-[0.16em] text-[var(--text-tertiary)]">Quant Research Terminal</div>
+              </div>
+              <button className="rounded-md p-2 text-[var(--text-tertiary)] hover:bg-[var(--bg-card-hover)]" onClick={() => setOpen(false)} aria-label="关闭导航" type="button">
+                ×
+              </button>
+            </div>
+            <nav className="space-y-4 pb-8">
+              {navGroups.map((group) => (
+                <div key={group.title}>
+                  <div className="px-3 pb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--text-tertiary)]">{group.title}</div>
+                  <div className="space-y-1" onClick={() => setOpen(false)}>
+                    {group.items.map((item) => (
+                      <NavLink key={item.href} item={item} pathname={pathname} />
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </nav>
+          </aside>
+        </div>
+      )}
     </div>
+  );
+}
+
+function NavLink({ item, pathname }: { item: (typeof navGroups)[number]["items"][number]; pathname: string }) {
+  const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      className={cn(
+        "group relative flex h-10 items-center gap-3 rounded-md px-3 text-sm text-[var(--text-secondary)] transition-colors hover:bg-[var(--color-primary-soft)] hover:text-[var(--color-primary)]",
+        active && "bg-[var(--color-primary-soft)] text-[var(--color-primary)]"
+      )}
+    >
+      <span
+        className={cn(
+          "absolute left-0 top-2 h-6 w-0.5 rounded-r bg-transparent transition-colors",
+          active && "bg-[var(--color-primary)]"
+        )}
+      />
+      <Icon className="h-4 w-4" aria-hidden />
+      <span>{item.label}</span>
+    </Link>
   );
 }

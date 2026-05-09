@@ -99,7 +99,7 @@ export const guideSections: GuideSection[] = [
       },
       {
         title: "确认数据更新时间",
-        text: "顶部 Header 会显示数据更新时间；如果数据较旧，先点击“更新并运行策略”或进入数据中心同步。"
+        text: "顶部 Header 会显示数据更新时间；如果数据较旧，先点击“手动刷新数据与策略”或进入数据中心同步。"
       },
       {
         title: "按流程进入候选和诊股",
@@ -136,7 +136,7 @@ export const guideSections: GuideSection[] = [
         text: "查看顶部数据更新时间、Dashboard 数据质量和数据中心同步状态。"
       },
       {
-        title: "Step 2：点击“更新并运行策略”",
+        title: "Step 2：点击“手动刷新数据与策略”",
         text: "等待每日流水线完成；系统会同步快照、构建重点股票池、补抓失败股票、计算因子、运行策略并生成每日决策。"
       },
       {
@@ -163,7 +163,7 @@ export const guideSections: GuideSection[] = [
     ],
     pitfalls: [
       "如果任务超过 30 秒，不代表页面卡死，请先看任务进度条。",
-      "全市场同步进行中时，暂缓重复点击顶部“更新并运行策略”。",
+      "全市场同步进行中时，暂缓重复点击顶部“手动刷新数据与策略”。",
       "主观察为空时，要先看数据质量、策略状态和市场状态原因。"
     ]
   },
@@ -233,7 +233,7 @@ export const guideSections: GuideSection[] = [
     results: [
       "股票池从小样本扩展到更广泛市场，减少候选长期集中在少数蓝筹。",
       "失败股票不会阻塞整个同步任务。",
-      "同步完成后可返回顶部点击“更新并运行策略”。"
+      "同步完成后可返回顶部点击“手动刷新数据与策略”。"
     ],
     pitfalls: [
       "AKShare 免费数据源可能限流或字段变动，单只股票失败并不代表系统整体失败。",
@@ -250,14 +250,14 @@ export const guideSections: GuideSection[] = [
   },
   {
     id: "run-strategies",
-    title: "如何更新并运行策略",
-    description: "解释顶部“更新并运行策略”按钮和每日流水线执行阶段。",
+    title: "如何手动刷新数据与策略",
+    description: "解释顶部“手动刷新数据与策略”按钮和每日流水线执行阶段。",
     scenario: "数据已经更新，想生成今日决策、候选池和策略结果。",
     image: tutorialImages.taskProgress,
     steps: [
       {
         title: "点击顶部按钮",
-        text: "顶部 Header 右侧点击“更新并运行策略”。如果全市场同步正在运行，系统会提示稍后再运行。"
+        text: "顶部 Header 右侧点击“手动刷新数据与策略”。如果全市场同步正在运行，系统会提示稍后再运行。"
       },
       {
         title: "观察每日流水线",
@@ -651,7 +651,7 @@ export const guideSections: GuideSection[] = [
         answer: "可能是数据缺失、停牌、ST、上市时间过短、硬风险触发或风险等级过高。"
       },
       {
-        question: "更新并运行策略很慢怎么办？",
+        question: "手动刷新数据与策略很慢怎么办？",
         answer: "查看任务进度条，确认是否卡在数据同步、补抓失败股票、因子计算或策略运行阶段。全市场同步较慢时可先同步重点股票池。"
       }
     ]

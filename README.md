@@ -144,18 +144,18 @@ NEXT_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run dev
 - 初始化 `Stock / DailyPrice / Strategy / Signal / BacktestResult / Review / RiskRule`
 - 生成 12 只示例股票的历史行情
 - 初始化三个内置策略
-- 自动运行一次启用策略生成候选池
+- 启动服务端后台调度器，等待定时任务或手动兜底任务生成候选池
 
 示例行情是本地模拟数据，只用于功能演示和研究流程验证。
 
 ## AKShare 真实数据源
 
-当前已接入 AKShare 作为第一版真实 A 股数据源。手动点击“更新并运行策略”时，后端默认执行：
+当前已接入 AKShare 作为第一版真实 A 股数据源。Felix量化 默认由服务端后台任务刷新数据，前端只读取数据库快照：
 
-1. `tracked` 模式读取当前本地股票池；`all` 模式读取 AKShare 东方财富 A 股实时行情列表
-2. 同步真实日线历史行情
-3. 写入现有 `stocks` 与 `daily_prices`
-4. 执行启用策略并生成当天候选池
+1. 09:00 `morning_prewarm_job`：检查数据源、股票池和失败补抓队列
+2. 11:35 `midday_refresh_job`：生成午盘研究快照
+3. 15:15 `after_close_refresh_job`：同步收盘后行情、运行策略、刷新风险和策略收益
+4. Dashboard 优先读取 `dashboard_snapshots`，手动“刷新数据与策略”只作为兜底
 
 默认配置适合本地快速验证：
 
@@ -166,6 +166,9 @@ AKSHARE_STOCK_SCOPE=tracked
 AKSHARE_HISTORY_DAYS=180
 AKSHARE_ADJUST=qfq
 AKSHARE_SYNC_INDUSTRY=false
+AUTO_SCHEDULER_ENABLED=true
+JOB_TIMEZONE=Asia/Shanghai
+CRON_SECRET=change-me
 ```
 
 配置说明：
