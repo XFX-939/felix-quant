@@ -10,13 +10,13 @@ export function MarketSnapshotCard({ summary }: { summary: DashboardSummary | nu
   const strongest = summary?.market_theme?.themes?.[0];
 
   return (
-    <Card className="border-[var(--border-strong)]">
-      <CardHeader className="flex-row items-center justify-between">
-        <div className="flex items-center gap-2">
+    <Card className="min-w-0 border-[var(--border-strong)]">
+      <CardHeader className="flex-row flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border-strong)] bg-[var(--color-primary-soft)]">
             <TrendingUp className="h-4 w-4 text-[var(--color-primary)]" aria-hidden />
           </span>
-          <div>
+          <div className="min-w-0">
             <CardTitle>今日行情快照</CardTitle>
             <p className="mt-1 text-xs text-[var(--text-tertiary)]">用于校正市场状态、主线识别和今日决策口径</p>
           </div>
@@ -26,7 +26,7 @@ export function MarketSnapshotCard({ summary }: { summary: DashboardSummary | nu
         </Badge>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
           <SnapshotMetric label="上证指数" value={formatPctPoint(regime?.shIndexPctChg)} tone="up" />
           <SnapshotMetric label="深证成指" value={formatPctPoint(regime?.szIndexPctChg)} tone="up" />
           <SnapshotMetric label="创业板指" value={formatPctPoint(regime?.cybIndexPctChg)} tone="up" />
@@ -49,9 +49,9 @@ export function MarketSnapshotCard({ summary }: { summary: DashboardSummary | nu
 
 function SnapshotMetric({ label, value, tone }: { label: string; value: string; tone?: "up" }) {
   return (
-    <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3">
-      <div className="text-xs text-[var(--text-tertiary)]">{label}</div>
-      <div className={`finance-number mt-1 truncate text-sm font-semibold ${tone === "up" ? "market-up" : "text-[var(--text-primary)]"}`}>
+    <div className="min-w-0 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3">
+      <div className="truncate whitespace-nowrap text-xs text-[var(--text-tertiary)]">{label}</div>
+      <div className={`finance-number mt-1 truncate whitespace-nowrap text-sm font-semibold ${tone === "up" ? "market-up" : "text-[var(--text-primary)]"}`}>
         {value}
       </div>
     </div>
