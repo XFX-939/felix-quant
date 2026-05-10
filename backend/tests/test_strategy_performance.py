@@ -106,6 +106,21 @@ class StrategyPerformanceServiceTest(unittest.TestCase):
         self.assertIn("3M", item["periods"])
         self.assertEqual(item["periods"]["1M"]["validityLevel"], "样本不足")
 
+    def test_validation_reports_period_coverage_diagnostics(self):
+        strategy_performance_service.refresh_strategy_performance(force=True)
+
+        validation = strategy_performance_service.validate_strategy_performance_data()
+        diagnostic = next(
+            item
+            for item in validation["periodCoverageDiagnostics"]
+            if item["strategyName"] == self.strategy_name and item["period"] == "1Y"
+        )
+
+        self.assertEqual(diagnostic["requiredRows"], 250)
+        self.assertEqual(diagnostic["availableRows"], 31)
+        self.assertEqual(diagnostic["missingRows"], 219)
+        self.assertEqual(diagnostic["coverageRatio"], round(31 / 250, 6))
+
     def test_overview_excludes_sample_insufficient_flat_nav_from_best_strategy(self):
         flat_name = f"{self.strategy_name}_flat"
         timestamp = now_iso()

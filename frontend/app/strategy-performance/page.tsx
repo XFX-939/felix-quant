@@ -449,6 +449,11 @@ function PerformanceDataStatus({ summary }: { summary: StrategyPerformanceSummar
   const latest = validation?.latestTradeDate || summary?.updatedAt || "尚未生成";
   const validCount = summary?.overview.validBacktestStrategyCount ?? 0;
   const insufficient = summary?.overview.insufficientSampleCount ?? validation?.insufficientSampleItems.length ?? 0;
+  const oneYearDiagnostics = validation?.periodCoverageDiagnostics?.filter((item) => item.period === "1Y") || [];
+  const weakestOneYear = [...oneYearDiagnostics].sort((a, b) => a.coverageRatio - b.coverageRatio)[0];
+  const oneYearCoverageText = weakestOneYear
+    ? `${weakestOneYear.availableRows}/${weakestOneYear.requiredRows} 点`
+    : "待生成";
   const reason = validation?.warnings.slice(0, 2).join("；") || "收益数据链路正常时，表格和走势图会从后端预聚合表读取。";
   return (
     <Card>
@@ -460,12 +465,13 @@ function PerformanceDataStatus({ summary }: { summary: StrategyPerformanceSummar
         <Badge tone={validation?.isHealthy ? "success" : "warning"}>{validation?.isHealthy ? "链路可用" : "需要补齐"}</Badge>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid gap-2 md:grid-cols-5">
+        <div className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
           <RepairMetric label="strategy_nav_daily" value={navReady ? "已覆盖" : `缺 ${validation?.missingNavStrategies.length ?? 0} 个`} />
           <RepairMetric label="performance_summary" value={summaryReady ? "已生成" : `缺 ${validation?.missingSummaryStrategies.length ?? 0} 个`} />
           <RepairMetric label="最近生成时间" value={latest} />
           <RepairMetric label="有效策略数量" value={`${validCount} 个`} />
           <RepairMetric label="样本不足策略" value={`${insufficient} 个`} />
+          <RepairMetric label="近1年最低覆盖" value={oneYearCoverageText} />
         </div>
         <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3 text-xs leading-5 text-[var(--text-secondary)]">
           {reason}
@@ -502,7 +508,11 @@ function ReturnCell({ performance }: { performance?: StrategyPeriodPerformance }
     return <span className="text-[var(--text-tertiary)]">--</span>;
   }
   if (performance.validityLevel === "数据不足") {
-    return <span className="text-[var(--color-danger)]" title={performance.warnings.join("；") || "数据覆盖不足"}>数据不足</span>;
+    return (
+      <span className="text-[var(--color-danger)]" title={performance.warnings.join("；") || "数据覆盖不足"}>
+        数据不足 <span className="text-xs text-[var(--text-tertiary)]">{Math.round(performance.dataCoverageRatio * 100)}%</span>
+      </span>
+    );
   }
   if (performance.validityLevel === "样本不足") {
     return <span className="text-[var(--color-warning)]" title={`交易次数 ${performance.tradeCount}，统计意义较弱`}>样本不足</span>;
@@ -525,7 +535,11 @@ function PeriodMetric({
     return <span className="text-[var(--text-tertiary)]">--</span>;
   }
   if (performance.validityLevel === "数据不足") {
-    return <span className="text-[var(--color-danger)]" title={performance.warnings.join("；") || "数据覆盖不足"}>数据不足</span>;
+    return (
+      <span className="text-[var(--color-danger)]" title={performance.warnings.join("；") || "数据覆盖不足"}>
+        数据不足 <span className="text-xs text-[var(--text-tertiary)]">{Math.round(performance.dataCoverageRatio * 100)}%</span>
+      </span>
+    );
   }
   if (performance.validityLevel === "样本不足") {
     return <span className="text-[var(--color-warning)]" title={`交易次数 ${performance.tradeCount}，统计意义较弱`}>样本不足</span>;
@@ -549,6 +563,11 @@ function DataRepairCard({
   const insufficientSample = validation?.insufficientSampleItems.length || 0;
   const lowCoverage = validation?.lowCoverageItems.length || 0;
   const invalidZero = validation?.invalidZeroReturnItems.length || 0;
+  const oneYearDiagnostics = validation?.periodCoverageDiagnostics?.filter((item) => item.period === "1Y") || [];
+  const worstCoverage = [...oneYearDiagnostics].sort((a, b) => a.coverageRatio - b.coverageRatio)[0];
+  const coverageHint = worstCoverage
+    ? `近1年最低覆盖 ${worstCoverage.availableRows}/${worstCoverage.requiredRows} 个净值点，仍缺 ${worstCoverage.missingRows} 个。`
+    : "尚未检测到近1年净值覆盖诊断。";
   if (validation?.isHealthy && !insufficientSample && !lowCoverage) {
     return (
       <Card>
@@ -584,6 +603,11 @@ function DataRepairCard({
               <li key={warning}>- {warning}</li>
             ))}
           </ul>
+        )}
+        {lowCoverage > 0 && (
+          <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3 text-xs leading-5 text-[var(--text-secondary)]">
+            {coverageHint} 这通常表示历史行情或策略净值窗口不足，需要先补齐历史数据，再重新生成策略净值和收益汇总。
+          </div>
         )}
         <div className="flex flex-wrap gap-2">
           <Button onClick={onGenerateNav} disabled={disabled}>

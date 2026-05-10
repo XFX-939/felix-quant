@@ -698,6 +698,16 @@ export interface StrategyPerformanceSummary {
     staleSummaryItems: string[];
     insufficientSampleItems: string[];
     lowCoverageItems: string[];
+    periodCoverageDiagnostics: Array<{
+      strategyName: string;
+      period: PerformancePeriod;
+      requiredRows: number;
+      availableRows: number;
+      missingRows: number;
+      coverageRatio: number;
+      earliestNavDate?: string | null;
+      latestNavDate?: string | null;
+    }>;
     invalidZeroReturnItems: string[];
     warnings: string[];
     isHealthy: boolean;

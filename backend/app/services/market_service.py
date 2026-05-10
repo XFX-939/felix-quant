@@ -414,14 +414,33 @@ def _daily_sync_window(code: str, end: date) -> tuple[str, str] | None:
     end_iso = end.isoformat()
     with get_connection() as conn:
         state = conn.execute("SELECT last_daily_date FROM stock_sync_state WHERE code = ?", (code,)).fetchone()
-        latest_price = conn.execute("SELECT MAX(date) AS latest_date FROM daily_prices WHERE stock_code = ?", (code,)).fetchone()
+        latest_price = conn.execute(
+            """
+            SELECT MIN(date) AS earliest_date, MAX(date) AS latest_date, COUNT(DISTINCT date) AS price_count
+            FROM daily_prices
+            WHERE stock_code = ? AND date <= ?
+            """,
+            (code, end_iso),
+        ).fetchone()
     last_daily_date = (state["last_daily_date"] if state and state["last_daily_date"] else None) or (latest_price["latest_date"] if latest_price else None)
-    if last_daily_date and last_daily_date >= end_iso:
+    history_days = max(30, min(AKSHARE_HISTORY_DAYS, 250))
+    history_start = end - timedelta(days=int(history_days * 1.8))
+    history_start_iso = history_start.isoformat()
+    earliest_date = latest_price["earliest_date"] if latest_price else None
+    price_count = int(latest_price["price_count"] or 0) if latest_price else 0
+    has_enough_history = bool(
+        earliest_date
+        and earliest_date <= history_start_iso
+        and price_count >= max(1, int(history_days * 0.8))
+    )
+    if last_daily_date and last_daily_date >= end_iso and has_enough_history:
         return None
-    if last_daily_date:
+    if not has_enough_history:
+        start = history_start
+    elif last_daily_date:
         start = datetime.fromisoformat(last_daily_date).date() + timedelta(days=1)
     else:
-        start = end - timedelta(days=max(30, int(min(AKSHARE_HISTORY_DAYS, 250) * 1.8)))
+        start = history_start
     if start > end:
         return None
     return start.strftime("%Y%m%d"), end.strftime("%Y%m%d")

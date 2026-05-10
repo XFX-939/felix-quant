@@ -175,15 +175,35 @@ def validate_strategy_performance_data() -> dict[str, Any]:
     missing_summary: list[str] = []
     stale_summary: list[str] = []
     insufficient_sample: list[str] = []
-    low_coverage: list[str] = []
+    low_coverage: set[str] = set()
+    period_coverage_diagnostics: list[dict[str, Any]] = []
     invalid_zero_return: list[str] = []
     warnings: list[str] = []
 
     for strategy in strategies:
         name = strategy["name"]
-        nav_count = _nav_count(name)
+        nav_stats = _nav_stats(name)
+        nav_count = int(nav_stats["nav_count"] or 0)
         if nav_count == 0:
             missing_nav.append(name)
+        for period in DEFAULT_PERIODS:
+            required_rows = PERIODS[period] or nav_count
+            available_rows = min(nav_count, required_rows) if required_rows else nav_count
+            coverage_ratio = available_rows / max(required_rows, 1) if required_rows else 1.0
+            period_coverage_diagnostics.append(
+                {
+                    "strategyName": name,
+                    "period": period,
+                    "requiredRows": required_rows,
+                    "availableRows": available_rows,
+                    "missingRows": max(0, required_rows - available_rows),
+                    "coverageRatio": round(coverage_ratio, 6),
+                    "earliestNavDate": nav_stats.get("earliest_date"),
+                    "latestNavDate": nav_stats.get("latest_date"),
+                }
+            )
+            if coverage_ratio < 0.8:
+                low_coverage.add(f"{name}:{period}")
         periods = {row["period"]: row for row in _summary_rows_for_strategy(name)}
         if any(period not in periods for period in DEFAULT_PERIODS):
             missing_summary.append(name)
@@ -193,7 +213,7 @@ def validate_strategy_performance_data() -> dict[str, Any]:
             if row.get("validity_level") == "样本不足":
                 insufficient_sample.append(f"{name}:{period}")
             if float(row.get("data_coverage_ratio") or 0) < 0.8:
-                low_coverage.append(f"{name}:{period}")
+                low_coverage.add(f"{name}:{period}")
             if float(row.get("return_rate") or 0) == 0 and int(row.get("trade_count") or 0) == 0 and nav_count == 0:
                 invalid_zero_return.append(f"{name}:{period}")
 
@@ -209,7 +229,8 @@ def validate_strategy_performance_data() -> dict[str, Any]:
         "missingSummaryStrategies": missing_summary,
         "staleSummaryItems": stale_summary,
         "insufficientSampleItems": insufficient_sample,
-        "lowCoverageItems": low_coverage,
+        "lowCoverageItems": sorted(low_coverage),
+        "periodCoverageDiagnostics": period_coverage_diagnostics,
         "invalidZeroReturnItems": invalid_zero_return,
         "warnings": warnings,
         "isHealthy": not (missing_nav or missing_summary or invalid_zero_return),
@@ -907,6 +928,19 @@ def _nav_count(strategy_name: str) -> int:
             (strategy_name,),
         ).fetchone()
     return int(row["c"] or 0)
+
+
+def _nav_stats(strategy_name: str) -> dict[str, Any]:
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS nav_count, MIN(trade_date) AS earliest_date, MAX(trade_date) AS latest_date
+            FROM strategy_nav_daily
+            WHERE strategy_name = ?
+            """,
+            (strategy_name,),
+        ).fetchone()
+    return dict_from_row(row) or {"nav_count": 0, "earliest_date": None, "latest_date": None}
 
 
 def _trade_records(strategy_name: str, start_date: str, end_date: str) -> list[dict]:
