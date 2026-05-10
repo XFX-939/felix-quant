@@ -123,8 +123,8 @@ export default function StrategiesPage() {
         </div>
       </div>
 
-      {message && <div className="rounded-md border border-emerald-500/35 bg-emerald-500/10 p-3 text-sm text-emerald-100">{message}</div>}
-      {error && <div className="rounded-md border border-red-500/35 bg-red-500/10 p-3 text-sm text-red-200">{error}</div>}
+      {message && <div className="rounded-md border border-[rgba(24,160,88,0.45)] bg-[var(--color-success-soft)] p-3 text-sm text-[var(--color-success)]">{message}</div>}
+      {error && <div className="rounded-md border border-[rgba(230,69,69,0.45)] bg-[var(--color-danger-soft)] p-3 text-sm text-[var(--color-danger)]">{error}</div>}
 
       <div className="grid gap-5 xl:grid-cols-[1fr_0.65fr]">
         <div className="space-y-4">
@@ -184,27 +184,44 @@ export default function StrategiesPage() {
         <Card>
           <CardHeader>
             <CardTitle>创建策略</CardTitle>
+            <p className="mt-1 text-xs text-[var(--text-tertiary)]">仅用于本地研究配置，创建后仍需回测验证和人工复核。</p>
           </CardHeader>
-          <CardContent className="space-y-3">
-            <Input placeholder="策略名称" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
-            <Textarea
-              placeholder="策略描述"
-              value={form.description}
-              onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-            />
-            <Select value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))}>
-              <option value="趋势">趋势</option>
-              <option value="均值回归">均值回归</option>
-              <option value="量价">量价</option>
-              <option value="多因子">多因子</option>
-              <option value="短线龙头">短线龙头</option>
-            </Select>
-            <Textarea
-              value={form.parameters}
-              onChange={(event) => setForm((current) => ({ ...current, parameters: event.target.value }))}
-              spellCheck={false}
-              className="min-h-44 font-mono text-xs"
-            />
+          <CardContent className="space-y-4">
+            <FormField label="策略名称" help="建议使用能说明逻辑的中文名称。">
+              <Input placeholder="例如：低回撤趋势策略" value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} />
+            </FormField>
+            <FormField label="策略描述" help="说明信号来源、适用市场和主要风险。">
+              <Textarea
+                placeholder="描述策略逻辑、适用场景和风控边界"
+                value={form.description}
+                onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+              />
+            </FormField>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormField label="策略类型" help="用于策略筛选和收益归类。">
+                <Select value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value }))}>
+                  <option value="趋势">趋势</option>
+                  <option value="均值回归">均值回归</option>
+                  <option value="量价">量价</option>
+                  <option value="多因子">多因子</option>
+                  <option value="短线龙头">短线龙头</option>
+                </Select>
+              </FormField>
+              <FormField label="启用状态" help="新策略建议先仅复盘，通过验证后再参与日常观察。">
+                <Select value={form.enabled ? "true" : "false"} onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.value === "true" }))}>
+                  <option value="true">启用</option>
+                  <option value="false">仅复盘</option>
+                </Select>
+              </FormField>
+            </div>
+            <FormField label="参数 JSON" help="必须是合法 JSON；高级参数建议在回测验证后再调整。">
+              <Textarea
+                value={form.parameters}
+                onChange={(event) => setForm((current) => ({ ...current, parameters: event.target.value }))}
+                spellCheck={false}
+                className="min-h-44 font-mono text-xs"
+              />
+            </FormField>
             <Button className="w-full" onClick={createStrategy} disabled={!form.name.trim()}>
               创建策略
             </Button>
@@ -214,6 +231,16 @@ export default function StrategiesPage() {
 
       <StrategySourceDrawer source={selectedSource} onClose={() => setSelectedSource(null)} />
     </div>
+  );
+}
+
+function FormField({ label, help, children }: { label: string; help: string; children: ReactNode }) {
+  return (
+    <label className="block space-y-2">
+      <span className="text-sm font-medium">{label}</span>
+      {children}
+      <span className="block text-xs leading-5 text-[var(--text-tertiary)]">{help}</span>
+    </label>
   );
 }
 

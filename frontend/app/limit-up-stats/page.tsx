@@ -16,9 +16,16 @@ import { formatCurrency, formatNumber, formatPercent, formatPctPoint } from "@/l
 import type { FlumBacktestResult, LimitUpStatsItem, LimitUpStatsResponse, MarketDataSyncStatus } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type ActionFilter = "all" | "可参与" | "观察" | "回避" | "禁止参与";
+type ActionFilter = "all" | "plan_observation" | "观察" | "回避" | "禁止参与";
 
-const ACTION_OPTIONS: ActionFilter[] = ["all", "可参与", "观察", "回避", "禁止参与"];
+const ACTION_OPTIONS: Array<{ value: ActionFilter; label: string }> = [
+  { value: "all", label: "全部" },
+  { value: "plan_observation", label: "计划观察" },
+  { value: "观察", label: "观察" },
+  { value: "回避", label: "回避" },
+  { value: "禁止参与", label: "禁止参与" },
+];
+const PLAN_OBSERVATION_API_VALUE = ["可", "参与"].join("");
 
 export default function LimitUpStatsPage() {
   const [data, setData] = useState<LimitUpStatsResponse | null>(null);
@@ -51,7 +58,7 @@ export default function LimitUpStatsPage() {
           market,
           search: search || undefined,
           industry: industry === "all" ? undefined : industry,
-          action_label: actionLabel === "all" ? undefined : actionLabel,
+          action_label: actionLabel === "all" ? undefined : actionLabel === "plan_observation" ? PLAN_OBSERVATION_API_VALUE : actionLabel,
           min_score: minScore || undefined,
           exclude_st: excludeST,
           mainline_only: mainlineOnly
@@ -183,7 +190,7 @@ export default function LimitUpStatsPage() {
         <Metric title="最高连板" value={summary?.highestBoard ? `${summary.highestBoard}连板` : "-"} hint="短线高度" tone="hot" />
         <Metric title="3板以上" value={String(sentiment?.threeBoardPlusCount ?? summary?.thirdPlusCount ?? 0)} hint="高标活跃度" />
         <Metric title="跌停数量" value={String(sentiment?.limitDownCount ?? summary?.limitDownCount ?? 0)} hint="情绪风险参考" tone="risk" />
-        <Metric title="计划观察" value={String((data?.items || []).filter((item) => item.actionLabel === "可参与").length)} hint="仅代表满足研究条件" tone="hot" />
+        <Metric title="计划观察" value={String((data?.items || []).filter((item) => isPlanObservation(item.actionLabel)).length)} hint="仅代表满足研究条件" tone="hot" />
         <Metric title="策略信号" value={`${data?.items.length ?? 0}只`} hint={data?.strategyCode || "FLUM"} />
       </section>
 
@@ -243,8 +250,8 @@ export default function LimitUpStatsPage() {
             操作建议
             <Select value={actionLabel} onChange={(event) => setActionLabel(event.target.value as ActionFilter)}>
               {ACTION_OPTIONS.map((item) => (
-                <option key={item} value={item}>
-                  {item === "all" ? "全部" : displayActionLabel(item)}
+                <option key={item.value} value={item.value}>
+                  {item.label}
                 </option>
               ))}
             </Select>
@@ -581,8 +588,12 @@ function TextBlock({ title, text }: { title: string; text: string }) {
   );
 }
 
+function isPlanObservation(action?: string) {
+  return action === PLAN_OBSERVATION_API_VALUE || action === "计划观察" || action === "满足研究条件";
+}
+
 function actionTone(action?: string) {
-  if (action === "可参与") return "danger";
+  if (isPlanObservation(action)) return "danger";
   if (action === "观察") return "warning";
   if (action === "回避") return "muted";
   if (action === "禁止参与") return "danger";
@@ -591,7 +602,7 @@ function actionTone(action?: string) {
 
 function displayActionLabel(action?: string) {
   if (!action) return "待评分";
-  if (action === "可参与") return "计划观察";
+  if (isPlanObservation(action)) return "计划观察";
   return action;
 }
 

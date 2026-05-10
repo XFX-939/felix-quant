@@ -249,7 +249,7 @@ export default function DataCenterPage() {
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-            <Metric label="总体状态" value={dataStatusLabel(dataStatus?.overallStatus)} hint={dataStatus?.dataDate ? `数据日期 ${dataStatus.dataDate}` : "等待数据库快照"} tone={dataStatus?.overallStatus === "normal" ? "success" : "warning"} />
+            <Metric label="总体状态" value={dataStatusLabel(dataStatus?.overallStatus)} hint={dataStatus?.dataDate ? `数据日期 ${dataStatus.dataDate}` : "尚未生成数据库快照"} tone={dataStatus?.overallStatus === "normal" ? "success" : "warning"} />
             <Metric label="最近快照" value={dataStatus?.latestDashboardSnapshot?.generated_at || "未生成"} hint={dataStatus?.latestDashboardSnapshot?.snapshot_type || "Dashboard 将使用实时兜底"} />
             <Metric label="失败股票" value={`${dataStatus?.failedStockCount ?? failedRecords.length} 条`} hint="单只失败不会阻塞整条流水线" tone={(dataStatus?.failedStockCount ?? 0) > 0 ? "warning" : "success"} />
             <Metric label="调度时区" value={jobsLatest?.timezone || "Asia/Shanghai"} hint={jobsLatest?.schedulerEnabled ? "服务端调度已开启" : "服务端调度未开启"} />

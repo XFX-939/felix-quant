@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Save } from "lucide-react";
 
 import { RiskBadge } from "@/components/RiskBadge";
+import { EmptyState } from "@/components/feedback/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -43,8 +44,10 @@ export default function RiskPage() {
   const [drafts, setDrafts] = useState<Record<number, { threshold: string; enabled: string }>>({});
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   async function load() {
+    setError(null);
     const [overviewData, ruleData, dashboardData] = await Promise.all([api.riskOverview(), api.riskRules(), api.dashboard()]);
     const typedRules = ruleData as unknown as RiskRule[];
     setOverview(overviewData as unknown as RiskOverview);
@@ -54,7 +57,9 @@ export default function RiskPage() {
   }
 
   useEffect(() => {
-    load().catch((err) => setError(err instanceof Error ? err.message : "风控加载失败"));
+    load()
+      .catch((err) => setError(err instanceof Error ? err.message : "风控加载失败"))
+      .finally(() => setLoading(false));
   }, []);
 
   async function saveRule(rule: RiskRule) {
@@ -83,6 +88,32 @@ export default function RiskPage() {
       {message && <div className="rounded-md border border-[rgba(24,160,88,0.45)] bg-[var(--color-success-soft)] p-3 text-sm text-[var(--color-success)]">{message}</div>}
       {error && <div className="rounded-md border border-[rgba(230,69,69,0.45)] bg-[var(--color-danger-soft)] p-3 text-sm text-[var(--color-danger)]">{error}</div>}
 
+      {loading && (
+        <Card>
+          <CardContent className="space-y-3 p-4">
+            <div className="h-5 w-36 animate-pulse rounded bg-[var(--bg-elevated)]" />
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="h-24 animate-pulse rounded-md bg-[var(--bg-elevated)]" />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!loading && !overview && (
+        <EmptyState
+          variant={error ? "error" : "data-missing"}
+          title="风控数据未生成"
+          description="当前没有可用的风控快照，无法展示仓位、集中度和风险池。"
+          reason={error || "请先完成每日后台任务，或到数据中心检查行情和策略运行状态。"}
+          primaryAction={{ label: "进入数据中心", href: "/data-center" }}
+          secondaryAction={{ label: "查看使用教程", href: "/guide#risk-center" }}
+        />
+      )}
+
+      {!loading && overview && (
+        <>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <Metric label="单票最大仓位" value={formatPercent(overview?.single_position_limit)} />
         <Metric label="基础风控上限" value={formatPercent(overview?.total_position_suggestion)} />
@@ -142,7 +173,7 @@ export default function RiskPage() {
               Dashboard 与风控仓位：{summary?.position_decision ? "一致" : "等待 Dashboard 口径"}，今日最终仓位 {formatPercent(summary?.position_decision?.finalPositionMin)} ~ {formatPercent(summary?.position_decision?.finalPositionMax)}
             </div>
             <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3 text-sm">
-              风险观察池：{summary?.candidate_funnel?.riskPool ?? 0} 只；数据质量：{summary?.data_quality?.integrityLevel || "-"}；回测可信度：{summary?.latest_backtest?.validity?.validityLevel || "暂无"}
+              风险观察池：{summary?.candidate_funnel?.riskPool ?? 0} 只；数据质量：{summary?.data_quality?.integrityLevel || "等待生成"}；回测可信度：{summary?.latest_backtest?.validity?.validityLevel || "等待回测"}
             </div>
             {overview?.latest_backtest && (
               <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3 text-sm">
@@ -243,8 +274,15 @@ export default function RiskPage() {
                 ))}
                 {!overview?.high_risk_pool?.length && (
                   <TableRow>
-                    <TableCell colSpan={7} className="py-10 text-center text-muted-foreground">
-                      暂无高风险候选
+                    <TableCell colSpan={7} className="py-4">
+                      <EmptyState
+                        compact
+                        variant="no-result"
+                        title="当前没有高风险候选"
+                        description="风险池为空通常表示今日快照未发现高风险标的，或风控数据尚未覆盖更多股票。"
+                        primaryAction={{ label: "查看候选池", href: "/candidates" }}
+                        secondaryAction={{ label: "进入数据中心", href: "/data-center" }}
+                      />
                     </TableCell>
                   </TableRow>
                 )}
@@ -253,6 +291,8 @@ export default function RiskPage() {
           </div>
         </CardContent>
       </Card>
+        </>
+      )}
     </div>
   );
 }

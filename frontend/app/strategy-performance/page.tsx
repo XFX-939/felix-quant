@@ -291,7 +291,7 @@ export default function StrategyPerformancePage() {
             <CardTitle>策略收益表格</CardTitle>
             <p className="mt-1 text-xs text-[var(--text-tertiary)]">样本不足或数据不足时，收益不作为策略有效性依据。</p>
           </div>
-          <Badge tone="default">{filteredRows.length} 个策略</Badge>
+          <Badge tone="default">{loading ? "加载中" : `${filteredRows.length} 个策略`}</Badge>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto scrollbar-thin">
@@ -313,7 +313,8 @@ export default function StrategyPerformancePage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((row) => (
+                {loading && <StrategyTableSkeleton />}
+                {!loading && filteredRows.map((row) => (
                   <tr key={row.strategyName} className="border-b border-[var(--border-subtle)] hover:bg-[var(--bg-elevated)]">
                     <Td>
                       <button className="text-left font-semibold text-[var(--text-primary)] hover:text-[var(--color-primary)]" onClick={() => setSelectedStrategy(row.strategyName)} type="button">
@@ -343,13 +344,13 @@ export default function StrategyPerformancePage() {
                     </Td>
                   </tr>
                 ))}
-                {!filteredRows.length && (
+                {!loading && !filteredRows.length && (
                   <tr>
                     <Td colSpan={12} className="py-4">
                       <EmptyState
-                        variant={loading ? "loading" : error ? "error" : "backtest-missing"}
-                        title={loading ? "正在加载策略收益" : "暂无可用策略收益"}
-                        description={loading ? "正在读取 strategy_performance_summary 和策略净值缓存。" : "当前缺少 strategy_nav_daily 或 strategy_performance_summary，因此不能用 0.0% 伪装收益。"}
+                        variant={error ? "error" : "backtest-missing"}
+                        title={error ? "策略收益加载失败" : "暂无可用策略收益"}
+                        description={error ? "接口返回异常，无法判断策略收益状态。" : "当前缺少 strategy_nav_daily 或 strategy_performance_summary，因此不能用 0.0% 伪装收益。"}
                         reason={error || "请先生成策略净值、执行长期回测，或刷新收益汇总。样本不足策略不会参与有效性排序。"}
                         primaryAction={{ label: "生成策略净值", onClick: generateNav, disabled: Boolean(task && ["pending", "running"].includes(task.status)) }}
                         secondaryAction={{ label: "执行长期回测", href: "/backtest" }}
@@ -427,6 +428,22 @@ export default function StrategyPerformancePage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function StrategyTableSkeleton() {
+  return (
+    <>
+      {Array.from({ length: 5 }).map((_, index) => (
+        <tr key={index} className="border-b border-[var(--border-subtle)]">
+          {Array.from({ length: 12 }).map((__, cellIndex) => (
+            <Td key={cellIndex}>
+              <div className="h-4 w-full max-w-24 animate-pulse rounded bg-[var(--bg-elevated)]" />
+            </Td>
+          ))}
+        </tr>
+      ))}
+    </>
   );
 }
 

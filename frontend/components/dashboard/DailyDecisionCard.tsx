@@ -13,7 +13,7 @@ const modeLabels: Record<string, string> = {
 
 export function DailyDecisionCard({ summary }: { summary: DashboardSummary | null }) {
   const decision = summary?.daily_decision;
-  const modeLabel = modeLabels[decision?.decisionMode || ""] || "等待数据";
+  const modeLabel = modeLabels[decision?.decisionMode || ""] || "尚未生成";
   return (
     <Card className="border-[var(--border-strong)]">
       <CardHeader className="flex-row items-center justify-between">
@@ -22,7 +22,7 @@ export function DailyDecisionCard({ summary }: { summary: DashboardSummary | nul
           <p className="mt-1 text-xs text-[var(--text-tertiary)]">先判断今日是否适合行动，再看候选标的</p>
         </div>
         <Badge tone={decision?.decisionMode === "PROBE" ? "warning" : decision?.decisionMode === "WAIT" || decision?.decisionMode === "RISK_OFF" ? "danger" : "default"}>
-          {modeLabels[decision?.decisionMode || ""] || "-"}
+          {modeLabels[decision?.decisionMode || ""] || "待生成"}
         </Badge>
       </CardHeader>
       <CardContent>
@@ -33,16 +33,16 @@ export function DailyDecisionCard({ summary }: { summary: DashboardSummary | nul
               {decision?.decisionText || "请先更新数据并运行策略，系统会生成今日决策结论。"}
             </p>
             <div className="mt-4 grid gap-2 sm:grid-cols-3">
-              <Mini label="市场状态" value={decision?.marketRegime || summary?.market_regime?.marketRegime || "-"} />
+              <Mini label="市场状态" value={decision?.marketRegime || summary?.market_regime?.marketRegime || "待识别"} />
               <Mini
                 label="建议总仓位"
                 value={
                   decision
                     ? `${formatPercent(decision.suggestedTotalPositionMin, 0)} ~ ${formatPercent(decision.suggestedTotalPositionMax, 0)}`
-                    : "-"
+                    : "待生成"
                 }
               />
-              <Mini label="下一次复查" value={decision?.nextCheck || "-"} />
+              <Mini label="下一次复查" value={decision?.nextCheck || "等待每日任务"} />
             </div>
           </div>
           <div className="grid gap-3">

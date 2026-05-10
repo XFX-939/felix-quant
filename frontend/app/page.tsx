@@ -133,7 +133,7 @@ export default function DashboardPage() {
             <BookOpen className="h-4 w-4" />
             新手教程
           </Link>
-          <MarketPill label="可行动候选" value={loading ? "-" : `${funnel?.finalActionableCandidates ?? mainWatchlist.length} / 初筛 ${funnel?.strategyInitialCandidates ?? summary?.candidate_count ?? 0}`} />
+          <MarketPill label="可行动候选" value={loading ? "加载中" : `${funnel?.finalActionableCandidates ?? mainWatchlist.length} / 初筛 ${funnel?.strategyInitialCandidates ?? summary?.candidate_count ?? 0}`} />
           <MarketPill label="市场均值" value={formatPctPoint(summary?.market_status.avg_change)} />
           <MarketPill label="策略状态" value={`有效 ${strategyDecisionStatus?.activeStrategies ?? 0} / 复盘 ${strategyDecisionStatus?.reviewOnlyStrategies ?? 0} / 暂停 ${strategyDecisionStatus?.pausedStrategies ?? 0}`} />
         </div>

@@ -32,22 +32,23 @@ import type {
 
 const CONFIGURED_API_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "");
 
+function isLocalHost(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "0.0.0.0";
+}
+
 function getApiBase() {
-  if (!CONFIGURED_API_BASE) return "";
+  if (!CONFIGURED_API_BASE) {
+    if (typeof window === "undefined") return "http://127.0.0.1:8000";
+    return isLocalHost(window.location.hostname) ? `${window.location.protocol}//${window.location.hostname}:8000` : "";
+  }
   if (typeof window === "undefined") return CONFIGURED_API_BASE;
 
   try {
     const configured = new URL(CONFIGURED_API_BASE, window.location.origin);
     const current = window.location;
     const configuredIsSameOrigin = configured.origin === current.origin;
-    const currentIsLocal =
-      current.hostname === "localhost" ||
-      current.hostname === "127.0.0.1" ||
-      current.hostname === "0.0.0.0";
-    const configuredIsLocal =
-      configured.hostname === "localhost" ||
-      configured.hostname === "127.0.0.1" ||
-      configured.hostname === "0.0.0.0";
+    const currentIsLocal = isLocalHost(current.hostname);
+    const configuredIsLocal = isLocalHost(configured.hostname);
     const configuredIsRawIp = /^\d{1,3}(?:\.\d{1,3}){3}$/.test(configured.hostname);
     const wouldCrossFromDomainToIp = configuredIsRawIp && configured.hostname !== current.hostname;
     const wouldDowngradeHttps = current.protocol === "https:" && configured.protocol === "http:";
@@ -83,22 +84,27 @@ function withQuery(path: string, query?: Record<string, QueryValue>) {
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(`${getApiBase()}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options?.headers || {})
-    },
-    cache: "no-store"
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${getApiBase()}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options?.headers || {})
+      },
+      cache: "no-store"
+    });
+  } catch {
+    throw new Error("后端未连接：请确认 FastAPI 服务已启动，或检查 API 地址配置。");
+  }
   if (!response.ok) {
     const message = await response.text();
-    throw new Error(readErrorMessage(message) || `API request failed: ${response.status}`);
+    throw new Error(readErrorMessage(message, response.status) || `API request failed: ${response.status}`);
   }
   return response.json() as Promise<T>;
 }
 
-function readErrorMessage(message: string) {
+function readErrorMessage(message: string, status?: number) {
   if (!message) return "";
   try {
     const parsed = JSON.parse(message) as { detail?: unknown };
@@ -106,7 +112,13 @@ function readErrorMessage(message: string) {
   } catch {
     // Fall through to the original response text.
   }
-  return message;
+  if (/<\/?[a-z][\s\S]*>/i.test(message)) {
+    const title = message.match(/<title>(.*?)<\/title>/i)?.[1]?.trim();
+    return title
+      ? `接口返回 HTML 页面（${title}），请检查后端服务或 API 代理配置。`
+      : `接口返回 HTML 页面（HTTP ${status ?? "未知"}），请检查后端服务或 API 代理配置。`;
+  }
+  return message.length > 240 ? `${message.slice(0, 240)}...` : message;
 }
 
 export const api = {

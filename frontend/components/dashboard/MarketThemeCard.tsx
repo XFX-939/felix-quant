@@ -21,7 +21,7 @@ export function MarketThemeCard({ summary }: { summary: DashboardSummary | null 
       <CardContent className="space-y-3">
         <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
           <div className="text-xs text-[var(--text-tertiary)]">{theme?.confidence === "低" ? "行业估算线索" : "主线判断"}</div>
-          <div className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{theme?.displayText || "等待数据"}</div>
+          <div className="mt-1 text-sm font-semibold text-[var(--text-primary)]">{theme?.displayText || "尚未识别主线"}</div>
           {theme?.confidence === "低" && (
             <div className="mt-2 flex gap-2 text-xs leading-5 text-[var(--color-warning)]">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />

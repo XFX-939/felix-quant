@@ -19,6 +19,9 @@ DEFAULT_PERIODS = ["1M", "3M", "6M", "1Y"]
 DEFAULT_PARAMETER_HASH = "default"
 DEFAULT_DATA_VERSION = "local-sqlite-v1"
 DEFAULT_BENCHMARK_CODE = "LOCAL_EQUAL_WEIGHT"
+PERFORMANCE_STOCK_POOL = "all"
+CANDIDATE_REPLAY_STOCK_POOLS = {"today_candidates", "today_candidates_only", "current_candidates"}
+NON_EFFECTIVENESS_STOCK_POOLS = CANDIDATE_REPLAY_STOCK_POOLS | {"sample", "demo", "example"}
 ProgressCallback = Callable[[int, str], None]
 
 
@@ -92,15 +95,7 @@ def generate_strategy_nav_from_backtests(
         try:
             backtest = latest_backtests.get(name)
             if force or not backtest:
-                from app.services.backtest_service import run_backtest  # Local import avoids a module cycle.
-
-                payload = {
-                    "strategy_id": strategy["id"],
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "stock_pool": "today_candidates_only",
-                }
-                backtest = run_backtest({key: value for key, value in payload.items() if value})
+                backtest = _run_performance_backtest(strategy, start_date=start_date, end_date=end_date)
                 latest_backtests[name] = backtest
             if not backtest:
                 missing.append(name)
@@ -757,6 +752,10 @@ def _upsert_summary(performance: dict[str, Any], timestamp: str) -> None:
 
 
 def _write_empty_summaries(strategy_name: str, timestamp: str) -> None:
+    with get_connection() as conn:
+        conn.execute("DELETE FROM strategy_performance_summary WHERE strategy_name = ?", (strategy_name,))
+        conn.execute("DELETE FROM strategy_nav_daily WHERE strategy_name = ?", (strategy_name,))
+        conn.execute("DELETE FROM strategy_trade_records WHERE strategy_name = ?", (strategy_name,))
     for period in DEFAULT_PERIODS:
         _upsert_summary(_empty_performance(strategy_name, period), timestamp)
 
@@ -814,6 +813,41 @@ def _period_from_summary_row(strategy_name: str, period: str, row: dict | None) 
     }
 
 
+def _run_performance_backtest(
+    strategy: dict[str, Any],
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
+    from app.services.backtest_service import run_backtest  # Local import avoids a module cycle.
+
+    payload = {
+        "strategy_id": strategy["id"],
+        "start_date": start_date,
+        "end_date": end_date,
+        "stock_pool": PERFORMANCE_STOCK_POOL,
+    }
+    return run_backtest({key: value for key, value in payload.items() if value})
+
+
+def _backtest_stock_pool(backtest: dict[str, Any]) -> str:
+    result_json = _parse_json(backtest.get("result_json"), {})
+    return str(result_json.get("stock_pool") or "")
+
+
+def _backtest_stock_count(backtest: dict[str, Any]) -> int:
+    result_json = _parse_json(backtest.get("result_json"), {})
+    try:
+        return int(result_json.get("stock_count") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _is_non_effectiveness_backtest(backtest: dict[str, Any]) -> bool:
+    stock_pool = _backtest_stock_pool(backtest)
+    stock_count = _backtest_stock_count(backtest)
+    return stock_pool in NON_EFFECTIVENESS_STOCK_POOLS or (stock_pool == PERFORMANCE_STOCK_POOL and 0 < stock_count <= 12)
+
+
 def _latest_backtests_by_strategy() -> dict[str, dict]:
     with get_connection() as conn:
         rows = conn.execute(
@@ -821,17 +855,19 @@ def _latest_backtests_by_strategy() -> dict[str, dict]:
             SELECT br.*, st.name AS strategy_name
             FROM backtest_results br
             JOIN strategies st ON st.id = br.strategy_id
-            WHERE br.id IN (
-                SELECT MAX(br2.id)
-                FROM backtest_results br2
-                GROUP BY br2.strategy_id
-            )
+            ORDER BY br.id DESC
             """
         ).fetchall()
     results = dicts_from_rows(rows)
+    latest_by_name: dict[str, dict] = {}
     for result in results:
         result["result_json"] = _parse_json(result.get("result_json"), {})
-    return {result["strategy_name"]: result for result in results}
+        if result["strategy_name"] in latest_by_name:
+            continue
+        if _is_non_effectiveness_backtest(result):
+            continue
+        latest_by_name[result["strategy_name"]] = result
+    return latest_by_name
 
 
 def _list_strategies() -> list[dict]:

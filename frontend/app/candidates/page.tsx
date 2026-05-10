@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { BarChart3, Eye, FileText, LayoutGrid, List, PenLine, Search, X } from "lucide-react";
+import { BarChart3, Eye, FileText, LayoutGrid, List, PenLine, Search, SlidersHorizontal, X } from "lucide-react";
 
 import { RiskBadge } from "@/components/RiskBadge";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -90,6 +90,7 @@ export default function CandidatesPage() {
   const [topic, setTopic] = useState("all");
   const [sortKey, setSortKey] = useState<SortKey>("default");
   const [viewMode, setViewMode] = useState<ViewMode>("table");
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
   const [selected, setSelected] = useState<CandidateView | null>(null);
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -166,75 +167,74 @@ export default function CandidatesPage() {
         <SummaryCard label="今日主线" value={summary.mainTopics} hint={summary.marketHint} wide />
       </section>
 
-      <Card>
-        <CardContent className="grid gap-3 pt-4 lg:grid-cols-12">
-          <div className="relative lg:col-span-3">
-            <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden />
-            <Input className="pl-9" placeholder="搜索代码/名称" value={search} onChange={(event) => setSearch(event.target.value)} />
-          </div>
-          <Select className="lg:col-span-2" value={strategyType} onChange={(event) => setStrategyType(event.target.value)}>
-            {STRATEGY_OPTIONS.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </Select>
-          <Select className="lg:col-span-2" value={candidateType} onChange={(event) => setCandidateType(event.target.value)}>
-            {CANDIDATE_TYPE_OPTIONS.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </Select>
-          <Select value={riskLevel} onChange={(event) => setRiskLevel(event.target.value)}>
-            <option value="all">全部风险</option>
-            <option value="low">低风险</option>
-            <option value="medium">中风险</option>
-            <option value="high">高风险</option>
-          </Select>
-          <Select value={suggestedAction} onChange={(event) => setSuggestedAction(event.target.value)}>
-            <option value="all">全部动作</option>
-            <option value="观察">观察</option>
-            <option value="谨慎观察">谨慎观察</option>
-            <option value="暂不参与">暂不参与</option>
-          </Select>
-          <Select value={topic} onChange={(event) => setTopic(event.target.value)}>
-            <option value="all">全部行业/题材</option>
-            {topicOptions.map((item) => (
-              <option key={item} value={item}>
-                {item}
-              </option>
-            ))}
-          </Select>
-          <Select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
-            <option value="default">默认排序</option>
-            <option value="finalScore">综合评分</option>
-            <option value="hotspotScore">热点评分</option>
-            <option value="capitalFlowScore">资金评分</option>
-            <option value="pctChg">涨幅</option>
-            <option value="amount">成交额</option>
-            <option value="riskLevel">风险等级</option>
-          </Select>
-          <div className="flex rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-1 lg:col-span-1">
-            <button
-              aria-label="精简表格视图"
-              className={viewButtonClass(viewMode === "table")}
-              onClick={() => setViewMode("table")}
-              type="button"
-            >
-              <List className="h-4 w-4" />
-            </button>
-            <button
-              aria-label="卡片视图"
-              className={viewButtonClass(viewMode === "card")}
-              onClick={() => setViewMode("card")}
-              type="button"
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </button>
-          </div>
+      <div className="flex items-center justify-between gap-3 md:hidden">
+        <Button variant="outline" onClick={() => setFilterDrawerOpen(true)}>
+          <SlidersHorizontal className="h-4 w-4" />
+          筛选
+        </Button>
+        <div className="text-xs text-[var(--text-tertiary)]">当前显示 {filteredCandidates.length} 只</div>
+      </div>
+
+      <Card className="hidden md:block">
+        <CardHeader>
+          <CardTitle>筛选与视图</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <CandidateFilterPanel
+            search={search}
+            setSearch={setSearch}
+            strategyType={strategyType}
+            setStrategyType={setStrategyType}
+            candidateType={candidateType}
+            setCandidateType={setCandidateType}
+            riskLevel={riskLevel}
+            setRiskLevel={setRiskLevel}
+            suggestedAction={suggestedAction}
+            setSuggestedAction={setSuggestedAction}
+            topic={topic}
+            setTopic={setTopic}
+            topicOptions={topicOptions}
+            sortKey={sortKey}
+            setSortKey={setSortKey}
+            viewMode={viewMode}
+            setViewMode={setViewMode}
+          />
         </CardContent>
       </Card>
+
+      {filterDrawerOpen && (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <button className="absolute inset-0 bg-black/30" aria-label="关闭筛选" onClick={() => setFilterDrawerOpen(false)} type="button" />
+          <div className="absolute bottom-0 left-0 right-0 max-h-[86vh] overflow-y-auto rounded-t-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 shadow-xl">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="font-semibold">筛选候选池</div>
+              <Button variant="ghost" size="sm" onClick={() => setFilterDrawerOpen(false)}>
+                <X className="h-4 w-4" />
+                关闭
+              </Button>
+            </div>
+            <CandidateFilterPanel
+              search={search}
+              setSearch={setSearch}
+              strategyType={strategyType}
+              setStrategyType={setStrategyType}
+              candidateType={candidateType}
+              setCandidateType={setCandidateType}
+              riskLevel={riskLevel}
+              setRiskLevel={setRiskLevel}
+              suggestedAction={suggestedAction}
+              setSuggestedAction={setSuggestedAction}
+              topic={topic}
+              setTopic={setTopic}
+              topicOptions={topicOptions}
+              sortKey={sortKey}
+              setSortKey={setSortKey}
+              viewMode={viewMode}
+              setViewMode={setViewMode}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="space-y-4">
         <CandidateSection
@@ -288,6 +288,129 @@ export default function CandidatesPage() {
       </div>
 
       <CandidateDrawer candidate={selected} onClose={() => setSelected(null)} />
+    </div>
+  );
+}
+
+function CandidateFilterPanel({
+  search,
+  setSearch,
+  strategyType,
+  setStrategyType,
+  candidateType,
+  setCandidateType,
+  riskLevel,
+  setRiskLevel,
+  suggestedAction,
+  setSuggestedAction,
+  topic,
+  setTopic,
+  topicOptions,
+  sortKey,
+  setSortKey,
+  viewMode,
+  setViewMode,
+}: {
+  search: string;
+  setSearch: (value: string) => void;
+  strategyType: string;
+  setStrategyType: (value: string) => void;
+  candidateType: string;
+  setCandidateType: (value: string) => void;
+  riskLevel: string;
+  setRiskLevel: (value: string) => void;
+  suggestedAction: string;
+  setSuggestedAction: (value: string) => void;
+  topic: string;
+  setTopic: (value: string) => void;
+  topicOptions: string[];
+  sortKey: SortKey;
+  setSortKey: (value: SortKey) => void;
+  viewMode: ViewMode;
+  setViewMode: (value: ViewMode) => void;
+}) {
+  return (
+    <div className="grid gap-4 xl:grid-cols-[1.1fr_1fr_1fr_1.1fr]">
+      <FilterGroup title="搜索股票" description="支持代码、名称检索">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" aria-hidden />
+          <Input className="pl-9" placeholder="搜索代码/名称" value={search} onChange={(event) => setSearch(event.target.value)} />
+        </div>
+      </FilterGroup>
+
+      <FilterGroup title="策略与类型" description="区分蓝筹、趋势和热点候选">
+        <Select value={strategyType} onChange={(event) => setStrategyType(event.target.value)}>
+          {STRATEGY_OPTIONS.map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </Select>
+        <Select value={candidateType} onChange={(event) => setCandidateType(event.target.value)}>
+          {CANDIDATE_TYPE_OPTIONS.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </Select>
+      </FilterGroup>
+
+      <FilterGroup title="风险与动作" description="优先排查高风险和暂不参与">
+        <Select value={riskLevel} onChange={(event) => setRiskLevel(event.target.value)}>
+          <option value="all">全部风险</option>
+          <option value="low">低风险</option>
+          <option value="medium">中风险</option>
+          <option value="high">高风险</option>
+        </Select>
+        <Select value={suggestedAction} onChange={(event) => setSuggestedAction(event.target.value)}>
+          <option value="all">全部动作</option>
+          <option value="观察">观察</option>
+          <option value="谨慎观察">谨慎观察</option>
+          <option value="暂不参与">暂不参与</option>
+        </Select>
+      </FilterGroup>
+
+      <FilterGroup title="行业题材与排序" description="按题材线索和评分口径查看">
+        <Select value={topic} onChange={(event) => setTopic(event.target.value)}>
+          <option value="all">全部行业/题材</option>
+          {topicOptions.map((item) => (
+            <option key={item} value={item}>
+              {item}
+            </option>
+          ))}
+        </Select>
+        <div className="grid grid-cols-[1fr_auto] gap-2">
+          <Select value={sortKey} onChange={(event) => setSortKey(event.target.value as SortKey)}>
+            <option value="default">默认排序</option>
+            <option value="finalScore">综合评分</option>
+            <option value="hotspotScore">热点评分</option>
+            <option value="capitalFlowScore">资金评分</option>
+            <option value="pctChg">涨幅</option>
+            <option value="amount">成交额</option>
+            <option value="riskLevel">风险等级</option>
+          </Select>
+          <div className="flex rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-1">
+            <button aria-label="精简表格视图" className={viewButtonClass(viewMode === "table")} onClick={() => setViewMode("table")} type="button">
+              <List className="h-4 w-4" />
+            </button>
+            <button aria-label="卡片视图" className={viewButtonClass(viewMode === "card")} onClick={() => setViewMode("card")} type="button">
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </FilterGroup>
+    </div>
+  );
+}
+
+function FilterGroup({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+  return (
+    <div className="space-y-3 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-elevated)] p-3">
+      <div>
+        <div className="text-sm font-semibold">{title}</div>
+        <div className="mt-1 text-xs text-[var(--text-tertiary)]">{description}</div>
+      </div>
+      <div className="space-y-2">{children}</div>
     </div>
   );
 }

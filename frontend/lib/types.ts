@@ -156,7 +156,7 @@ export interface LimitUpStatsItem {
   riskPenaltyScore?: number;
   totalScore?: number;
   actionLevel?: "A" | "B" | "C" | "D";
-  actionLabel?: "可参与" | "观察" | "回避" | "禁止参与";
+  actionLabel?: string;
   triggerCondition?: string;
   positionAdvice?: string;
   stopLossRule?: string;
