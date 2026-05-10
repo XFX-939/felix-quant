@@ -22,6 +22,9 @@ class ScheduledJobServiceTest(unittest.TestCase):
             conn.execute("DELETE FROM job_runs WHERE data_date LIKE '2099-%' OR trigger_type = 'unit_test'")
             conn.execute("DELETE FROM dashboard_snapshots WHERE data_date LIKE '2099-%'")
             conn.execute("DELETE FROM data_sync_status WHERE data_date LIKE '2099-%'")
+            conn.execute("DELETE FROM market_snapshots_daily WHERE trade_date LIKE '2099-%' OR stock_code = 'T2099'")
+            conn.execute("DELETE FROM daily_prices WHERE date LIKE '2099-%' OR stock_code = 'T2099'")
+            conn.execute("DELETE FROM stocks WHERE code = 'T2099'")
 
     def test_scheduled_jobs_are_seeded_with_three_refresh_windows(self):
         scheduled_job_service.ensure_scheduled_jobs()
@@ -48,10 +51,13 @@ class ScheduledJobServiceTest(unittest.TestCase):
 
     def test_dashboard_latest_prefers_persisted_snapshot(self):
         summary = {"last_data_date": "2099-05-09", "market_regime": {"marketRegime": "RiskOn"}}
-        with patch.object(scheduled_job_service, "dashboard_summary", return_value=summary):
+        with (
+            patch.object(scheduled_job_service, "dashboard_summary", return_value=summary),
+            patch.object(scheduled_job_service, "target_trade_date", return_value="2099-05-09"),
+        ):
             scheduled_job_service.build_dashboard_snapshot("after_close", data_date="2099-05-09")
+            latest = scheduled_job_service.dashboard_latest_or_live()
 
-        latest = scheduled_job_service.dashboard_latest_or_live()
 
         self.assertTrue(latest["snapshot_meta"]["fromDatabaseSnapshot"])
         self.assertEqual(latest["snapshot_meta"]["dataDate"], "2099-05-09")
@@ -92,7 +98,8 @@ class ScheduledJobServiceTest(unittest.TestCase):
             scheduled_job_service._run_job(run["id"], definition, force=False)
 
         finished = scheduled_job_service.get_job_run(run["id"])
-        snapshot = scheduled_job_service.latest_dashboard_snapshot()
+        with patch.object(scheduled_job_service, "target_trade_date", return_value="2099-05-08"):
+            snapshot = scheduled_job_service.latest_dashboard_snapshot()
 
         self.assertEqual(finished["status"], "success")
         self.assertIn("non_trading_cache_refresh", finished["result_summary"]["job"])

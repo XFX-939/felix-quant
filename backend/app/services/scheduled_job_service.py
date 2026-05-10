@@ -160,20 +160,23 @@ def latest_jobs_status() -> dict[str, Any]:
 
 
 def data_status_overview() -> dict[str, Any]:
+    target = target_trade_date()
     with get_connection() as conn:
         rows = conn.execute("SELECT * FROM data_sync_status ORDER BY updated_at DESC").fetchall()
         stock_count = conn.execute("SELECT COUNT(*) AS c FROM stocks").fetchone()["c"]
         industry_count = conn.execute("SELECT COUNT(DISTINCT industry) AS c FROM stocks WHERE industry != '未分类'").fetchone()["c"]
-        latest_price = conn.execute("SELECT MAX(date) AS d FROM daily_prices").fetchone()["d"]
-        latest_snapshot = conn.execute("SELECT MAX(trade_date) AS d FROM market_snapshots_daily").fetchone()["d"]
+        latest_price = conn.execute("SELECT MAX(date) AS d FROM daily_prices WHERE date <= ?", (target,)).fetchone()["d"]
+        latest_snapshot = conn.execute("SELECT MAX(trade_date) AS d FROM market_snapshots_daily WHERE trade_date <= ?", (target,)).fetchone()["d"]
         failed_stock_count = conn.execute("SELECT COUNT(*) AS c FROM failed_sync_records WHERE status IN ('pending', 'retrying', 'failed')").fetchone()["c"]
         latest_dashboard = conn.execute(
             """
             SELECT data_date, snapshot_type, generated_at
             FROM dashboard_snapshots
+            WHERE data_date <= ?
             ORDER BY generated_at DESC
             LIMIT 1
-            """
+            """,
+            (target,),
         ).fetchone()
     items = [_decode_data_status(row) for row in rows]
     latest_run = latest_jobs_status().get("latestSuccess")
@@ -271,14 +274,17 @@ def build_dashboard_snapshot(snapshot_type: str = "manual", data_date: str | Non
 
 def latest_dashboard_snapshot() -> dict[str, Any] | None:
     order = "CASE snapshot_type WHEN 'after_close' THEN 1 WHEN 'midday' THEN 2 WHEN 'morning' THEN 3 WHEN 'manual' THEN 4 ELSE 5 END"
+    target = target_trade_date()
     with get_connection() as conn:
         row = conn.execute(
             f"""
             SELECT *
             FROM dashboard_snapshots
+            WHERE data_date <= ?
             ORDER BY data_date DESC, {order}, generated_at DESC
             LIMIT 1
-            """
+            """,
+            (target,),
         ).fetchone()
     item = dict_from_row(row)
     if not item:
