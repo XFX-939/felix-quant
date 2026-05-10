@@ -867,10 +867,16 @@ export interface DashboardSummary {
     superRiskOnSignal?: boolean;
     overrideReason?: string;
     regimeReasons?: string[];
+    shIndexClose?: number;
     shIndexPctChg?: number;
+    szIndexClose?: number;
     szIndexPctChg?: number;
+    cybIndexClose?: number;
     cybIndexPctChg?: number;
+    kc50Close?: number;
     kc50PctChg?: number;
+    bse50Close?: number;
+    bse50PctChg?: number;
     totalAmount?: number;
     totalAmountChange?: number;
     upStockCount?: number;

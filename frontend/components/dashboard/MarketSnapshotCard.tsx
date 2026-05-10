@@ -2,7 +2,7 @@ import { Activity, TrendingUp } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatPctPoint, formatPercent } from "@/lib/format";
+import { formatNumber, formatPctPoint, formatPercent } from "@/lib/format";
 import type { DashboardSummary } from "@/lib/types";
 
 export function MarketSnapshotCard({ summary }: { summary: DashboardSummary | null }) {
@@ -27,10 +27,10 @@ export function MarketSnapshotCard({ summary }: { summary: DashboardSummary | nu
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-8">
-          <SnapshotMetric label="上证指数" value={formatPctPoint(regime?.shIndexPctChg)} tone="up" />
-          <SnapshotMetric label="深证成指" value={formatPctPoint(regime?.szIndexPctChg)} tone="up" />
-          <SnapshotMetric label="创业板指" value={formatPctPoint(regime?.cybIndexPctChg)} tone="up" />
-          <SnapshotMetric label="科创50" value={formatPctPoint(regime?.kc50PctChg)} tone="up" />
+          <SnapshotMetric label="上证指数" value={formatIndexMetric(regime?.shIndexClose, regime?.shIndexPctChg)} tone={metricTone(regime?.shIndexPctChg)} />
+          <SnapshotMetric label="深证成指" value={formatIndexMetric(regime?.szIndexClose, regime?.szIndexPctChg)} tone={metricTone(regime?.szIndexPctChg)} />
+          <SnapshotMetric label="创业板指" value={formatIndexMetric(regime?.cybIndexClose, regime?.cybIndexPctChg)} tone={metricTone(regime?.cybIndexPctChg)} />
+          <SnapshotMetric label="科创50" value={formatIndexMetric(regime?.kc50Close, regime?.kc50PctChg)} tone={metricTone(regime?.kc50PctChg)} />
           <SnapshotMetric label="全市场成交额" value={formatLargeAmount(regime?.totalAmount)} />
           <SnapshotMetric label="上涨家数" value={`${regime?.upStockCount ?? "-"} / ${formatPercent(regime?.snapshotUpStockRatio)}`} />
           <SnapshotMetric label="涨停 / 跌停" value={`${regime?.snapshotLimitUpCount ?? regime?.limitUpCount ?? "-"} / ${regime?.snapshotLimitDownCount ?? regime?.limitDownCount ?? "-"}`} />
@@ -47,15 +47,37 @@ export function MarketSnapshotCard({ summary }: { summary: DashboardSummary | nu
   );
 }
 
-function SnapshotMetric({ label, value, tone }: { label: string; value: string; tone?: "up" }) {
+function SnapshotMetric({ label, value, tone }: { label: string; value: string; tone?: "up" | "down" | "flat" }) {
+  const toneClass =
+    tone === "up"
+      ? "market-up"
+      : tone === "down"
+        ? "market-down"
+        : "text-[var(--text-primary)]";
+
   return (
     <div className="min-w-0 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-card)] p-3">
       <div className="truncate whitespace-nowrap text-xs text-[var(--text-tertiary)]">{label}</div>
-      <div className={`finance-number mt-1 truncate whitespace-nowrap text-sm font-semibold ${tone === "up" ? "market-up" : "text-[var(--text-primary)]"}`}>
+      <div className={`finance-number mt-1 truncate whitespace-nowrap text-sm font-semibold ${toneClass}`}>
         {value}
       </div>
     </div>
   );
+}
+
+function formatIndexMetric(close?: number | null, pct?: number | null) {
+  if ((close === undefined || close === null || Number.isNaN(close)) && (pct === undefined || pct === null || Number.isNaN(pct))) {
+    return "-";
+  }
+  if (close === undefined || close === null || Number.isNaN(close)) return formatPctPoint(pct);
+  return `${formatNumber(close, 2)} / ${formatPctPoint(pct)}`;
+}
+
+function metricTone(value?: number | null): "up" | "down" | "flat" {
+  if (value === undefined || value === null || Number.isNaN(value)) return "flat";
+  if (value > 0) return "up";
+  if (value < 0) return "down";
+  return "flat";
 }
 
 function formatLargeAmount(value?: number | null) {

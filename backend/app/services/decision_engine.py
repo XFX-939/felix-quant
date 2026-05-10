@@ -368,6 +368,30 @@ def detect_market_themes(market_context: dict, signals: list[dict], coverage: di
     coverage = coverage or data_coverage_panel(market_context)
     critical_missing = _critical_hotspot_data_missing(coverage)
     themes = []
+    snapshot_data = ((market_context.get("marketSnapshot") or {}).get("data") or {})
+    if isinstance(snapshot_data, dict):
+        for snapshot_theme in snapshot_data.get("themes") or []:
+            if not isinstance(snapshot_theme, dict):
+                continue
+            name = str(snapshot_theme.get("name") or "市场线索")
+            themes.append(
+                {
+                    "name": name,
+                    "level": str(snapshot_theme.get("level") or "行业降级"),
+                    "themeScore": round(float(snapshot_theme.get("themeScore") or 0), 2),
+                    "confidence": str(snapshot_theme.get("confidence") or "中"),
+                    "relatedSectors": [str(item) for item in (snapshot_theme.get("relatedSectors") or [name])],
+                    "evidence": [str(item) for item in (snapshot_theme.get("evidence") or [])],
+                    "dataBasis": [str(item) for item in (snapshot_theme.get("dataBasis") or _theme_data_basis(coverage))],
+                    "missingData": [str(item) for item in (snapshot_theme.get("missingData") or _theme_missing_data(coverage))],
+                    "sectorPctChg": round(float(snapshot_theme.get("sectorPctChg") or 0), 2),
+                    "sectorRank": int(snapshot_theme.get("sectorRank") or 99),
+                    "sectorLimitUpCount": int(snapshot_theme.get("sectorLimitUpCount") or 0),
+                    "sectorStrongStockCount": int(snapshot_theme.get("sectorStrongStockCount") or 0),
+                    "sectorAmountChange": round(float(snapshot_theme.get("sectorAmountChange") or 0), 4),
+                    "continuationDays": int(snapshot_theme.get("continuationDays") or 1),
+                }
+            )
     for sector, stats in sector_stats.items():
         score = _theme_score(stats)
         if score >= 60:
