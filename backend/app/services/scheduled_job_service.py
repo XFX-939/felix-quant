@@ -81,6 +81,7 @@ def ensure_scheduled_jobs() -> None:
 def start_scheduler() -> None:
     global _scheduler_started
     ensure_scheduled_jobs()
+    _mark_interrupted_running_jobs()
     if not AUTO_SCHEDULER_ENABLED:
         return
     _ensure_non_trading_snapshot_from_cache()
@@ -745,6 +746,22 @@ def _mark_stale_running_jobs() -> None:
                     """,
                     (timestamp, timestamp, row["id"]),
                 )
+
+
+def _mark_interrupted_running_jobs() -> None:
+    timestamp = now_iso()
+    with get_connection() as conn:
+        conn.execute(
+            """
+            UPDATE job_runs
+            SET status = 'failed_timeout',
+                finished_at = ?,
+                error_message = '后台服务重启，运行中任务已中断，请重新执行或等待自动任务补跑。',
+                updated_at = ?
+            WHERE status = 'running'
+            """,
+            (timestamp, timestamp),
+        )
 
 
 def _definition_for_job(job_name: str) -> dict[str, str] | None:
