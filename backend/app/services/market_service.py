@@ -141,16 +141,18 @@ def list_industries() -> list[str]:
 
 
 def latest_trade_date() -> str | None:
+    latest_allowed = _latest_business_day(date.today()).isoformat()
     with get_connection() as conn:
         row = conn.execute(
             """
             SELECT MAX(trade_date) AS latest_date
             FROM (
-                SELECT MAX(date) AS trade_date FROM daily_prices
+                SELECT MAX(date) AS trade_date FROM daily_prices WHERE date <= ?
                 UNION
-                SELECT MAX(trade_date) AS trade_date FROM market_snapshots_daily
+                SELECT MAX(trade_date) AS trade_date FROM market_snapshots_daily WHERE trade_date <= ?
             )
-            """
+            """,
+            (latest_allowed, latest_allowed),
         ).fetchone()
     return row["latest_date"] if row and row["latest_date"] else None
 
