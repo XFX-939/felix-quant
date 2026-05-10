@@ -136,7 +136,7 @@ def sync_market_snapshot(
     try:
         _write_status(target, "running", progress=10, total_count=limit or 5000, task_id=task_id)
         _notify(progress_callback, 10, "开始同步数据")
-        rows = _fetch_snapshot_rows(source=source, limit=limit)
+        rows = _fetch_snapshot_rows(source=source, limit=limit, trade_date=target)
         _notify(progress_callback, 30, f"市场数据获取完成，共 {len(rows)} 只股票")
         _write_status(target, "running", progress=30, total_count=len(rows), task_id=task_id)
         if not rows:
@@ -215,12 +215,183 @@ def get_limit_up_stats(
     }
 
 
-def _fetch_snapshot_rows(source: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
+def _fetch_snapshot_rows(source: str | None = None, limit: int | None = None, trade_date: str | None = None) -> list[dict[str, Any]]:
     data_source = (source or MARKET_DATA_SOURCE or "akshare").lower()
     if data_source == "sample":
         return _sample_snapshot_rows(limit=limit)
     provider = AkshareDataProvider(include_industry=False)
-    return provider.fetch_market_snapshot(limit=limit)
+    rows = provider.fetch_market_snapshot(limit=limit)
+    return _merge_limit_up_pool_rows(rows, _safe_limit_up_pool(provider, trade_date)) if trade_date else rows
+
+
+def refresh_limit_up_pool(trade_date: str | None = None) -> dict[str, Any]:
+    target = trade_date or target_trade_date()
+    provider = AkshareDataProvider(include_industry=False)
+    pool_rows = _safe_limit_up_pool(provider, target)
+    if not pool_rows:
+        return {"tradeDate": target, "updatedCount": 0, "reason": "涨停池接口未返回数据"}
+    timestamp = now_iso()
+    values: list[tuple[Any, ...]] = []
+    stock_values: list[tuple[Any, ...]] = []
+    for row in pool_rows:
+        code = row["stock_code"]
+        industry = row.get("industry") or "未分类"
+        stock_values.append((code, row.get("stock_name") or code, industry, infer_market(code), _num(row.get("float_market_value")), timestamp))
+        values.append(
+            (
+                industry,
+                _num(row.get("close")),
+                _num(row.get("change_pct")),
+                _num(row.get("amount")),
+                _num(row.get("turnover_rate")),
+                _num(row.get("market_value")),
+                _num(row.get("float_market_value")),
+                int(bool(row.get("is_broken_board"))),
+                row.get("first_limit_time") or None,
+                row.get("last_limit_time") or None,
+                int(row.get("open_board_count") or 0),
+                _num(row.get("seal_amount")),
+                _num(row.get("seal_amount_ratio")),
+                row.get("limit_up_type") or "未知",
+                max(1, int(row.get("board_count") or 1)),
+                row.get("raw_json") or "{}",
+                timestamp,
+                target,
+                code,
+            )
+        )
+    with get_connection() as conn:
+        conn.executemany(
+            """
+            INSERT INTO stocks (code, name, industry, market, float_market_cap, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(code) DO UPDATE SET
+                name = CASE WHEN excluded.name != '' THEN excluded.name ELSE stocks.name END,
+                industry = CASE WHEN excluded.industry != '未分类' THEN excluded.industry ELSE stocks.industry END,
+                market = excluded.market,
+                float_market_cap = CASE WHEN excluded.float_market_cap > 0 THEN excluded.float_market_cap ELSE stocks.float_market_cap END,
+                updated_at = excluded.updated_at
+            """,
+            [(code, name, industry, market, cap, timestamp, timestamp) for code, name, industry, market, cap, _ts in stock_values],
+        )
+        conn.executemany(
+            """
+            UPDATE market_snapshots_daily
+            SET industry = CASE WHEN ? != '未分类' THEN ? ELSE industry END,
+                close = CASE WHEN ? > 0 THEN ? ELSE close END,
+                change_pct = ?,
+                amount = CASE WHEN ? > 0 THEN ? ELSE amount END,
+                turnover_rate = CASE WHEN ? > 0 THEN ? ELSE turnover_rate END,
+                market_value = CASE WHEN ? > 0 THEN ? ELSE market_value END,
+                float_market_value = CASE WHEN ? > 0 THEN ? ELSE float_market_value END,
+                is_limit_up = 1,
+                is_broken_board = ?,
+                first_limit_time = COALESCE(?, first_limit_time),
+                last_limit_time = COALESCE(?, last_limit_time),
+                open_board_count = ?,
+                seal_amount = ?,
+                seal_amount_ratio = ?,
+                limit_up_type = ?,
+                board_count = ?,
+                raw_json = ?,
+                updated_at = ?
+            WHERE trade_date = ? AND stock_code = ?
+            """,
+            [
+                (
+                    industry,
+                    industry,
+                    close,
+                    close,
+                    change_pct,
+                    amount,
+                    amount,
+                    turnover,
+                    turnover,
+                    market_value,
+                    market_value,
+                    float_market_value,
+                    float_market_value,
+                    is_broken,
+                    first_limit_time,
+                    last_limit_time,
+                    open_board_count,
+                    seal_amount,
+                    seal_amount_ratio,
+                    limit_up_type,
+                    board_count,
+                    raw_json,
+                    updated_at,
+                    target_date,
+                    code,
+                )
+                for (
+                    industry,
+                    close,
+                    change_pct,
+                    amount,
+                    turnover,
+                    market_value,
+                    float_market_value,
+                    is_broken,
+                    first_limit_time,
+                    last_limit_time,
+                    open_board_count,
+                    seal_amount,
+                    seal_amount_ratio,
+                    limit_up_type,
+                    board_count,
+                    raw_json,
+                    updated_at,
+                    target_date,
+                    code,
+                ) in values
+            ],
+        )
+    return {"tradeDate": target, "updatedCount": len(values), "source": "akshare.stock_zt_pool_em"}
+
+
+def _safe_limit_up_pool(provider: AkshareDataProvider, trade_date: str | None) -> list[dict[str, Any]]:
+    if not trade_date:
+        return []
+    try:
+        return provider.fetch_limit_up_pool(trade_date)
+    except AkshareUnavailableError:
+        return []
+
+
+def _merge_limit_up_pool_rows(rows: list[dict[str, Any]], pool_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not pool_rows:
+        return rows
+    by_code = {row.get("stock_code"): row for row in rows}
+    for pool in pool_rows:
+        code = pool["stock_code"]
+        target = by_code.get(code)
+        if not target:
+            continue
+        for key in (
+            "industry",
+            "close",
+            "change_pct",
+            "amount",
+            "turnover_rate",
+            "market_value",
+            "float_market_value",
+            "is_limit_up",
+            "is_broken_board",
+            "first_limit_time",
+            "last_limit_time",
+            "open_board_count",
+            "seal_amount",
+            "seal_amount_ratio",
+            "limit_up_type",
+            "board_count",
+        ):
+            value = pool.get(key)
+            if value not in (None, "", 0) or key in {"is_limit_up", "is_broken_board", "open_board_count", "board_count"}:
+                target[key] = value
+        target["raw_json"] = pool.get("raw_json") or target.get("raw_json") or "{}"
+    return rows
 
 
 def _upsert_snapshot_rows(trade_date: str, rows: list[dict[str, Any]]) -> int:
@@ -263,6 +434,15 @@ def _upsert_snapshot_rows(trade_date: str, rows: list[dict[str, Any]]) -> int:
                 int(bool(row.get("is_limit_down"))),
                 int(bool(row.get("is_suspended"))),
                 int(bool(row.get("is_st"))),
+                int(bool(row.get("is_broken_board"))),
+                row.get("first_limit_time") or None,
+                row.get("last_limit_time") or None,
+                int(row.get("open_board_count") or 0),
+                _num(row.get("seal_amount")),
+                _num(row.get("seal_amount_ratio")),
+                row.get("limit_up_type") or "未知",
+                int(row.get("board_count") or 0),
+                int(bool(row.get("is_new_high"))),
                 row.get("raw_json") or "{}",
                 timestamp,
                 timestamp,
@@ -291,9 +471,10 @@ def _upsert_snapshot_rows(trade_date: str, rows: list[dict[str, Any]]) -> int:
                 trade_date, stock_code, stock_name, market, industry, open, high, low, close, pre_close,
                 change_pct, volume, amount, turnover_rate, market_value, float_market_value,
                 limit_up_price, limit_down_price, is_limit_up, is_limit_down, is_suspended, is_st,
-                raw_json, created_at, updated_at
+                is_broken_board, first_limit_time, last_limit_time, open_board_count, seal_amount,
+                seal_amount_ratio, limit_up_type, board_count, is_new_high, raw_json, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(trade_date, stock_code) DO UPDATE SET
                 stock_name = excluded.stock_name,
                 market = excluded.market,
@@ -315,6 +496,15 @@ def _upsert_snapshot_rows(trade_date: str, rows: list[dict[str, Any]]) -> int:
                 is_limit_down = excluded.is_limit_down,
                 is_suspended = excluded.is_suspended,
                 is_st = excluded.is_st,
+                is_broken_board = excluded.is_broken_board,
+                first_limit_time = excluded.first_limit_time,
+                last_limit_time = excluded.last_limit_time,
+                open_board_count = excluded.open_board_count,
+                seal_amount = excluded.seal_amount,
+                seal_amount_ratio = excluded.seal_amount_ratio,
+                limit_up_type = excluded.limit_up_type,
+                board_count = excluded.board_count,
+                is_new_high = excluded.is_new_high,
                 raw_json = excluded.raw_json,
                 updated_at = excluded.updated_at
             """,
@@ -424,6 +614,7 @@ def _limit_up_rows(trade_date: str) -> list[dict[str, Any]]:
                 COALESCE(ms.seal_amount, 0) AS sealAmount,
                 COALESCE(ms.seal_amount_ratio, 0) AS sealAmountRatio,
                 COALESCE(ms.limit_up_type, '未知') AS limitUpType,
+                COALESCE(ms.board_count, 0) AS snapshotBoardCount,
                 COALESCE(ms.is_new_high, 0) AS snapshotIsNewHigh,
                 COALESCE(ms.updated_at, '') AS updatedAt
             FROM stocks s
@@ -475,6 +666,7 @@ def _limit_up_rows(trade_date: str) -> list[dict[str, Any]]:
                 "sealAmount": _num(row.get("sealAmount")),
                 "sealAmountRatio": _num(row.get("sealAmountRatio")),
                 "limitUpType": row.get("limitUpType") or "未知",
+                "snapshotBoardCount": int(row.get("snapshotBoardCount") or 0),
                 "snapshotIsNewHigh": bool(row.get("snapshotIsNewHigh")),
             }
         )
@@ -485,7 +677,7 @@ def _group_limit_rows(trade_date: str, rows: list[dict[str, Any]]) -> dict[int, 
     grouped: dict[int, list[dict[str, Any]]] = defaultdict(list)
     heights = _board_heights(trade_date, rows)
     for row in rows:
-        height = heights.get(row["code"], 1)
+        height = int(row.get("snapshotBoardCount") or 0) or heights.get(row["code"], 1)
         grouped[max(1, height)].append(row)
     for group_rows in grouped.values():
         group_rows.sort(key=lambda item: -(float(item.get("amount") or 0)))
@@ -528,15 +720,18 @@ def _trading_days_until(trade_date: str, limit: int = 20) -> list[str]:
 def _resolve_stats_date(trade_date: str | None) -> str:
     if trade_date:
         return trade_date
+    latest_allowed = target_trade_date()
     with get_connection() as conn:
         row = conn.execute(
             """
             SELECT MAX(trade_date) AS trade_date FROM market_snapshots_daily
-            UNION SELECT MAX(date) AS trade_date FROM daily_prices
+            WHERE trade_date <= ?
+            UNION SELECT MAX(date) AS trade_date FROM daily_prices WHERE date <= ?
             ORDER BY trade_date DESC LIMIT 1
-            """
+            """,
+            (latest_allowed, latest_allowed),
         ).fetchone()
-    return row["trade_date"] if row and row["trade_date"] else target_trade_date()
+    return row["trade_date"] if row and row["trade_date"] else latest_allowed
 
 
 def _snapshot_updated_at(trade_date: str) -> str | None:

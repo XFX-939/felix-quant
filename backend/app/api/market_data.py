@@ -11,7 +11,7 @@ from app.services.limit_up_strategy_service import (
     get_limit_up_strategy_signals,
     get_market_sentiment,
 )
-from app.services.market_data_service import get_limit_up_summary, get_market_data_sync_status
+from app.services.market_data_service import get_limit_up_summary, get_market_data_sync_status, refresh_limit_up_pool
 
 router = APIRouter(prefix="/market-data", tags=["market-data"])
 limit_router = APIRouter(prefix="/limit-up-stats", tags=["limit-up-stats"])
@@ -75,6 +75,7 @@ def limit_up_industry_heat(date: str | None = Query(default=None)) -> list[dict[
 
 @limit_strategy_router.post("/generate-signals")
 def generate_limit_up_signals(date: str | None = Query(default=None)) -> dict[str, Any]:
+    refresh_limit_up_pool(date)
     return get_limit_up_strategy_signals(trade_date=date)
 
 

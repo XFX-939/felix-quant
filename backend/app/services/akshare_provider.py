@@ -119,6 +119,53 @@ class AkshareDataProvider:
                 break
         return rows
 
+    def fetch_limit_up_pool(self, trade_date: str) -> list[dict]:
+        function = getattr(self.ak, "stock_zt_pool_em", None)
+        if not callable(function):
+            raise AkshareUnavailableError("当前 AKShare 版本不支持 stock_zt_pool_em 涨停池接口。")
+        try:
+            frame = function(date=trade_date.replace("-", ""))
+        except Exception as exc:  # noqa: BLE001 - external data source boundary
+            raise AkshareUnavailableError(f"AKShare 涨停池获取失败：{exc}") from exc
+        if frame is None or frame.empty:
+            return []
+        rows: list[dict] = []
+        for _, row in frame.iterrows():
+            code = normalize_stock_code(_pick(row, "代码", "股票代码", "code"))
+            if not code:
+                continue
+            name = str(_pick(row, "名称", "股票简称", "name", default="")).strip()
+            board_count = max(1, _to_int_like(_pick(row, "连板数", "连板高度", "board_count"), default=1))
+            open_board_count = max(0, _to_int_like(_pick(row, "炸板次数", "开板次数", "open_board_count"), default=0))
+            first_limit_time = _format_limit_time(_pick(row, "首次封板时间", "first_limit_time"))
+            last_limit_time = _format_limit_time(_pick(row, "最后封板时间", "last_limit_time"))
+            seal_amount = _to_float(_pick(row, "封板资金", "封单金额", "seal_amount"))
+            float_market_value = _to_float(_pick(row, "流通市值", "float_market_value"))
+            rows.append(
+                {
+                    "stock_code": code,
+                    "stock_name": name or code,
+                    "industry": str(_pick(row, "所属行业", "行业", "industry", default="")).strip() or "未分类",
+                    "close": _to_float(_pick(row, "最新价", "收盘价", "close")),
+                    "change_pct": _to_float(_pick(row, "涨跌幅", "pct_change", "pctChg")),
+                    "amount": _to_float(_pick(row, "成交额", "amount")),
+                    "turnover_rate": _to_float(_pick(row, "换手率", "turnover_rate")),
+                    "market_value": _to_float(_pick(row, "总市值", "market_value")),
+                    "float_market_value": float_market_value,
+                    "is_limit_up": True,
+                    "is_broken_board": False,
+                    "first_limit_time": first_limit_time,
+                    "last_limit_time": last_limit_time,
+                    "open_board_count": open_board_count,
+                    "seal_amount": seal_amount,
+                    "seal_amount_ratio": seal_amount / float_market_value if float_market_value > 0 and seal_amount > 0 else 0,
+                    "limit_up_type": str(_pick(row, "涨停类型", "板型", "limit_up_type", default="")).strip() or "未知",
+                    "board_count": board_count,
+                    "raw_json": json.dumps({str(key): _json_safe(value) for key, value in row.to_dict().items()}, ensure_ascii=False),
+                }
+            )
+        return rows
+
     def _market_spot_frame(self) -> Any:
         errors: list[str] = []
         for function_name in ("stock_zh_a_spot_em", "stock_zh_a_spot"):
@@ -289,6 +336,23 @@ def _to_float(value: Any, default: float = 0.0) -> float:
     return default if math.isnan(number) else number
 
 
+def _to_int_like(value: Any, default: int = 0) -> int:
+    if value is None or _is_nan(value):
+        return default
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return default if math.isnan(float(value)) else int(float(value))
+    text = str(value).strip()
+    if not text:
+        return default
+    digits = []
+    for char in text:
+        if char.isdigit():
+            digits.append(char)
+        elif digits:
+            break
+    return int("".join(digits)) if digits else default
+
+
 def _is_nan(value: Any) -> bool:
     try:
         return bool(pd.isna(value))
@@ -307,6 +371,23 @@ def _format_date(value: Any) -> str:
     if len(text) == 8 and text.isdigit():
         return f"{text[:4]}-{text[4:6]}-{text[6:]}"
     return text[:10]
+
+
+def _format_limit_time(value: Any) -> str:
+    if value is None or _is_nan(value):
+        return ""
+    text = str(value).strip()
+    if not text:
+        return ""
+    digits = "".join(ch for ch in text if ch.isdigit())
+    if len(digits) == 5:
+        digits = digits.zfill(6)
+    if len(digits) >= 6:
+        digits = digits[-6:]
+        return f"{digits[:2]}:{digits[2:4]}:{digits[4:6]}"
+    if len(digits) == 4:
+        return f"{digits[:2]}:{digits[2:4]}:00"
+    return text
 
 
 def _is_suspended(row: Any) -> bool:

@@ -71,6 +71,28 @@ class FakeAkshare:
             ]
         )
 
+    def stock_zt_pool_em(self, date):
+        self.limit_pool_date = date
+        return pd.DataFrame(
+            [
+                {
+                    "代码": "002281",
+                    "名称": "光迅科技",
+                    "最新价": 33.6,
+                    "涨跌幅": 10.0,
+                    "成交额": 2600000000,
+                    "换手率": 12.3,
+                    "流通市值": 42000000000,
+                    "连板数": "3天3板",
+                    "炸板次数": 1,
+                    "首次封板时间": 93000,
+                    "最后封板时间": 145700,
+                    "封板资金": 520000000,
+                    "所属行业": "通信",
+                }
+            ]
+        )
+
 
 class FakeAkshareSpotFails:
     def stock_zh_a_spot_em(self):
@@ -240,6 +262,23 @@ class AkshareProviderTest(unittest.TestCase):
         self.assertEqual(prices[-1]["close"], 10.71)
         self.assertEqual(prices[-1]["volume"], 1500000)
         self.assertEqual(prices[-1]["pct_change"], 5.0)
+
+    def test_fetch_limit_up_pool_maps_board_count_and_seal_fields(self):
+        fake_ak = FakeAkshare()
+        provider = AkshareDataProvider(fake_ak)
+
+        rows = provider.fetch_limit_up_pool("2026-05-08")
+
+        self.assertEqual(fake_ak.limit_pool_date, "20260508")
+        self.assertEqual(rows[0]["stock_code"], "002281")
+        self.assertEqual(rows[0]["stock_name"], "光迅科技")
+        self.assertEqual(rows[0]["industry"], "通信")
+        self.assertEqual(rows[0]["board_count"], 3)
+        self.assertEqual(rows[0]["open_board_count"], 1)
+        self.assertEqual(rows[0]["first_limit_time"], "09:30:00")
+        self.assertEqual(rows[0]["last_limit_time"], "14:57:00")
+        self.assertEqual(rows[0]["seal_amount"], 520000000)
+        self.assertTrue(rows[0]["is_limit_up"])
 
 
 if __name__ == "__main__":
