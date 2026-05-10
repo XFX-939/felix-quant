@@ -83,6 +83,7 @@ def start_scheduler() -> None:
     ensure_scheduled_jobs()
     if not AUTO_SCHEDULER_ENABLED:
         return
+    _ensure_non_trading_snapshot_from_cache()
     with _scheduler_lock:
         if _scheduler_started:
             return
@@ -466,12 +467,11 @@ def _run_job(run_id: int, definition: dict[str, str], force: bool) -> None:
     data_date = target_trade_date()
     snapshot_type = definition["snapshot_type"]
     try:
-        if date.today().weekday() >= 5:
-            _finish_job_run(run_id, "skipped_non_trading_day", summary={"reason": "非交易日，仅保留上一交易日快照。"})
-            return
         _update_job_run(run_id, status="running", progress=5, current_stage="checkDataSource：检查数据源、数据库和交易日")
         _upsert_data_status("stock_pool", data_date, "running", source=MARKET_DATA_SOURCE)
-        if definition["job_type"] == "morning_prewarm":
+        if date.today().weekday() >= 5:
+            result = _run_non_trading_cache_job(run_id, data_date)
+        elif definition["job_type"] == "morning_prewarm":
             result = _run_morning_job(run_id, data_date, force)
         elif definition["job_type"] == "midday_refresh":
             result = _run_midday_job(run_id, data_date, force)
@@ -484,6 +484,40 @@ def _run_job(run_id: int, definition: dict[str, str], force: bool) -> None:
     except Exception as exc:  # noqa: BLE001 - job boundary must persist visible failure
         _upsert_data_status("dashboard_snapshot", data_date, "failed", source="local-sqlite", error_message=str(exc))
         _finish_job_run(run_id, "failed", error_message=str(exc), summary={"dataDate": data_date, "snapshotType": snapshot_type})
+
+
+def _run_non_trading_cache_job(run_id: int, data_date: str) -> dict[str, Any]:
+    _update_job_run(run_id, progress=18, current_stage="loadCachedMarketData：非交易日复用上一交易日缓存行情")
+    with get_connection() as conn:
+        stock_count = conn.execute("SELECT COUNT(*) AS c FROM stocks").fetchone()["c"]
+        daily_price_count = conn.execute("SELECT COUNT(*) AS c FROM daily_prices WHERE date = ?", (data_date,)).fetchone()["c"]
+        snapshot_count = conn.execute("SELECT COUNT(*) AS c FROM market_snapshots_daily WHERE trade_date = ?", (data_date,)).fetchone()["c"]
+    cached_count = int(snapshot_count or daily_price_count or 0)
+    if cached_count <= 0:
+        raise RuntimeError(f"非交易日缺少 {data_date} 的行情缓存，无法生成研究快照。请先补齐上一交易日行情。")
+
+    _upsert_data_status("stock_pool", data_date, "success", source="local-sqlite-cache", total_count=int(stock_count or 0), success_count=int(stock_count or 0))
+    _upsert_data_status("daily_price", data_date, "success", source="local-sqlite-cache", total_count=cached_count, success_count=cached_count)
+
+    _update_job_run(run_id, progress=45, success_count=cached_count, current_stage="runStrategies：基于上一交易日缓存运行策略")
+    strategy_result = run_strategies()
+    _upsert_data_status("strategy", data_date, "success", source="local-sqlite-cache", total_count=strategy_result.get("strategies_run", 0), success_count=strategy_result.get("strategies_run", 0))
+
+    _update_job_run(run_id, progress=74, current_stage="updateStrategyPerformance：基于缓存刷新策略收益摘要")
+    performance = refresh_strategy_performance(force=False)
+    _upsert_data_status("nav", data_date, "success", source="local-sqlite-cache", total_count=performance.get("periodsWritten", 0), success_count=performance.get("periodsWritten", 0), failed_count=performance.get("failedCount", 0))
+    failed_count = int(performance.get("failedCount") or 0)
+    _update_job_run(run_id, failed_count=failed_count, success_count=int(strategy_result.get("signals_created") or cached_count))
+    return {
+        "job": "non_trading_cache_refresh",
+        "dataDate": data_date,
+        "stock_count": int(stock_count or 0),
+        "cached_count": cached_count,
+        "strategy": strategy_result,
+        "performance": performance,
+        "failed_count": failed_count,
+        "note": "非交易日未拉取新行情，已复用上一交易日缓存数据生成研究快照。",
+    }
 
 
 def _run_morning_job(run_id: int, data_date: str, force: bool) -> dict[str, Any]:
@@ -661,6 +695,26 @@ def _has_auto_run_today(job_name: str, data_date: str) -> bool:
             (job_name, data_date),
         ).fetchone()
     return bool(row)
+
+
+def _ensure_non_trading_snapshot_from_cache() -> None:
+    if date.today().weekday() < 5:
+        return
+    data_date = target_trade_date()
+    if latest_dashboard_snapshot() or _find_running_job("after_close_refresh_job"):
+        return
+    with get_connection() as conn:
+        cached_count = conn.execute(
+            """
+            SELECT COUNT(*) AS c
+            FROM market_snapshots_daily
+            WHERE trade_date = ?
+            """,
+            (data_date,),
+        ).fetchone()["c"]
+    if int(cached_count or 0) <= 0:
+        return
+    start_job("after_close_refresh_job", trigger_type="auto", scheduled_at=datetime.now(ZoneInfo(JOB_TIMEZONE)).isoformat())
 
 
 def _mark_stale_running_jobs() -> None:
