@@ -121,6 +121,28 @@ class MarketSyncRetryTest(unittest.TestCase):
                 conn.execute("DELETE FROM daily_prices WHERE stock_code = ?", (code,))
                 conn.execute("DELETE FROM stocks WHERE code = ?", (code,))
 
+    def test_short_history_sync_does_not_infer_stock_list_date(self):
+        code = "TST002"
+        timestamp = now_iso()
+        with get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO stocks (code, name, industry, market, list_date, created_at, updated_at)
+                VALUES (?, '上市日期保护测试', '测试', 'SZ', ?, ?, ?)
+                ON CONFLICT(code) DO UPDATE SET
+                    list_date = excluded.list_date,
+                    updated_at = excluded.updated_at
+                """,
+                (code, "2099-05-08", timestamp, timestamp),
+            )
+            market_service._clear_suspect_stock_list_date(conn, code, "2099-01-01", timestamp)
+            row = conn.execute("SELECT list_date FROM stocks WHERE code = ?", (code,)).fetchone()
+        try:
+            self.assertIsNone(row["list_date"])
+        finally:
+            with get_connection() as conn:
+                conn.execute("DELETE FROM stocks WHERE code = ?", (code,))
+
 
 if __name__ == "__main__":
     unittest.main()

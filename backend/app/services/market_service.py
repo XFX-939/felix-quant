@@ -336,15 +336,7 @@ def _update_akshare_market_data(
                 inserted_prices += 1
                 if price["date"] > latest_synced_date:
                     latest_synced_date = price["date"]
-            first_date = prices[0]["date"]
-            conn.execute(
-                """
-                UPDATE stocks
-                SET list_date = COALESCE(list_date, ?), updated_at = ?
-                WHERE code = ?
-                """,
-                (first_date, timestamp, code),
-            )
+            _clear_suspect_stock_list_date(conn, code, prices[0]["date"], timestamp)
         _mark_stock_sync_success(code, latest_synced_date or prices[-1]["date"], timestamp)
         task_service.mark_sync_recovered(end.isoformat(), code, "sync_stock_daily", "stock_daily")
     _notify_progress(progress_callback, 96, "正在清理异常未来日期行情")
@@ -659,6 +651,21 @@ def _upsert_stock(conn, stock: dict, timestamp: str) -> None:
             timestamp,
             timestamp,
         ),
+    )
+
+
+def _clear_suspect_stock_list_date(conn, code: str, first_price_date: str, timestamp: str) -> None:
+    conn.execute(
+        """
+        UPDATE stocks
+        SET list_date = CASE
+                WHEN list_date IS NOT NULL AND list_date > ? THEN NULL
+                ELSE list_date
+            END,
+            updated_at = ?
+        WHERE code = ?
+        """,
+        (first_price_date, timestamp, code),
     )
 
 

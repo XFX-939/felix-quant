@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from app.db.database import dict_from_row, dicts_from_rows, get_connection, now_iso
@@ -26,12 +26,22 @@ def get_stock_inspection_report(code: str, trade_date: str | None = None, force:
         latest_date = trade_date or conn.execute("SELECT MAX(date) AS date FROM daily_prices WHERE stock_code = ?", (normalized_code,)).fetchone()["date"]
         if not latest_date:
             raise ValueError("stock has no price data")
+        price_stats = _price_stats_for_report(normalized_code, latest_date)
         cached = None if force else conn.execute(
             "SELECT * FROM stock_diagnosis_reports WHERE code = ? AND trade_date = ?",
             (normalized_code, latest_date),
         ).fetchone()
-        if cached:
-            return _report_from_row(cached, dict_from_row(stock) or {})
+        needs_history_repair = _needs_history_repair(price_stats, cached, force)
+
+    if needs_history_repair and _ensure_report_history(normalized_code, latest_date):
+        force = True
+        with get_connection() as conn:
+            stock = conn.execute("SELECT * FROM stocks WHERE code = ?", (normalized_code,)).fetchone()
+            latest_date = trade_date or conn.execute("SELECT MAX(date) AS date FROM daily_prices WHERE stock_code = ?", (normalized_code,)).fetchone()["date"]
+            cached = None
+
+    if cached and not _cached_needs_repair(cached):
+        return _report_from_row(cached, dict_from_row(stock) or {})
 
     report = _build_report(dict_from_row(stock) or {}, latest_date)
     _persist_report(report)
@@ -184,7 +194,8 @@ def _build_report(stock: dict, trade_date: str) -> dict:
     latest_price = prices[-1] if prices else {}
     latest_signal = _latest_signal(code, trade_date)
     market_regime = _market_regime_from_signal(latest_signal)
-    listed_days = _listed_days(stock.get("list_date"), trade_date)
+    effective_list_date = _effective_list_date(stock.get("list_date"), prices)
+    listed_days = _listed_days(effective_list_date, trade_date)
     is_st = bool(stock.get("is_st"))
     is_suspended = bool(stock.get("is_suspended"))
     trend_status = _trend_status(latest_row)
@@ -202,7 +213,11 @@ def _build_report(stock: dict, trade_date: str) -> dict:
     }
     overall_score = _weighted_overall_score(scores)
     risk_level = _risk_level(latest_row, is_st=is_st, is_suspended=is_suspended, listed_days=listed_days, price_count=len(prices))
-    data_confidence, data_notes = _data_confidence(scores, prices, stock, latest_signal)
+    data_stock = dict(stock)
+    data_stock["list_date"] = effective_list_date
+    data_confidence, data_notes = _data_confidence(scores, prices, data_stock, latest_signal)
+    if stock.get("list_date") and effective_list_date is None and _is_suspect_list_date(stock.get("list_date"), prices):
+        data_notes.append("上市日期字段疑似由行情首日误填，已按未知上市日期处理")
     hard_risk_triggered = _hard_risk_triggered(latest_row, is_st=is_st, is_suspended=is_suspended, listed_days=listed_days, price_count=len(prices))
     mainline_match = _mainline_match(stock, latest_signal)
     rating = determine_research_rating(
@@ -261,6 +276,7 @@ def _build_report(stock: dict, trade_date: str) -> dict:
         "rawFactors": {
             "trendStatus": trend_status,
             "listedDays": listed_days,
+            "listDateReliable": bool(effective_list_date),
             "isST": is_st,
             "isSuspended": is_suspended,
             "hardRiskTriggered": hard_risk_triggered,
@@ -275,6 +291,120 @@ def _build_report(stock: dict, trade_date: str) -> dict:
             "latestSignal": latest_signal.get("strategy_name") if latest_signal else None,
         },
     }
+
+
+def _price_stats_for_report(code: str, trade_date: str) -> dict[str, Any]:
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(*) AS price_count, MIN(date) AS first_date, MAX(date) AS latest_date
+            FROM daily_prices
+            WHERE stock_code = ? AND date <= ?
+            """,
+            (code, trade_date),
+        ).fetchone()
+    return dict_from_row(row) or {"price_count": 0, "first_date": None, "latest_date": None}
+
+
+def _needs_history_repair(stats: dict[str, Any], cached: Any, force: bool) -> bool:
+    price_count = int(stats.get("price_count") or 0)
+    if price_count < 60:
+        return True
+    if force and price_count < 120:
+        return True
+    return bool(cached and _cached_needs_repair(cached))
+
+
+def _cached_needs_repair(cached: Any) -> bool:
+    raw_factors = _json_loads(cached["raw_factors_json"] if cached else None, {})
+    if cached and cached["data_confidence"] == "低" and raw_factors.get("hardRiskTriggered"):
+        return raw_factors.get("ma20") is None or raw_factors.get("listedDays") == 0
+    return False
+
+
+def _ensure_report_history(code: str, end_date: str) -> bool:
+    try:
+        prices = _fetch_history_prices(code, end_date)
+    except Exception:
+        return False
+    if not prices:
+        return False
+    prices = sorted(prices, key=lambda item: item["date"])
+    timestamp = now_iso()
+    with get_connection() as conn:
+        for price in prices:
+            conn.execute(
+                """
+                INSERT INTO daily_prices
+                    (stock_code, date, open, high, low, close, volume, amount, pct_change)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(stock_code, date) DO UPDATE SET
+                    open = excluded.open,
+                    high = excluded.high,
+                    low = excluded.low,
+                    close = excluded.close,
+                    volume = excluded.volume,
+                    amount = excluded.amount,
+                    pct_change = excluded.pct_change
+                """,
+                (
+                    price.get("stock_code") or code,
+                    price["date"],
+                    price["open"],
+                    price["high"],
+                    price["low"],
+                    price["close"],
+                    price["volume"],
+                    price["amount"],
+                    price["pct_change"],
+                ),
+            )
+        first_date = prices[0]["date"]
+        conn.execute(
+            """
+            UPDATE stocks
+            SET list_date = CASE
+                    WHEN list_date IS NOT NULL AND list_date > ? THEN NULL
+                    ELSE list_date
+                END,
+                updated_at = ?
+            WHERE code = ?
+            """,
+            (first_date, timestamp, code),
+        )
+    return True
+
+
+def _fetch_history_prices(code: str, end_date: str) -> list[dict]:
+    from app.core.config import AKSHARE_ADJUST
+    from app.services.akshare_provider import AkshareDataProvider
+
+    end = datetime.fromisoformat(end_date).date()
+    start = end - timedelta(days=450)
+    provider = AkshareDataProvider(include_industry=False)
+    return provider.fetch_daily_prices(
+        code,
+        start_date=start.strftime("%Y%m%d"),
+        end_date=end.strftime("%Y%m%d"),
+        adjust=AKSHARE_ADJUST,
+    )
+
+
+def _effective_list_date(list_date: str | None, prices: list[dict]) -> str | None:
+    if not list_date:
+        return None
+    if _is_suspect_list_date(list_date, prices):
+        return None
+    return list_date
+
+
+def _is_suspect_list_date(list_date: str | None, prices: list[dict]) -> bool:
+    if not list_date or not prices:
+        return False
+    first_price_date = str(prices[0].get("date") or "")
+    if not first_price_date:
+        return False
+    return list_date > first_price_date
 
 
 def _persist_report(report: dict) -> None:

@@ -1,6 +1,9 @@
 import unittest
+from datetime import date, timedelta
+from unittest.mock import patch
 
-from app.db.database import get_connection, initialize_database
+from app.db.database import get_connection, initialize_database, now_iso
+from app.services import stock_inspector_service
 from app.services.stock_inspector_service import determine_research_rating, estimate_target_price_range, get_stock_inspection_report
 
 
@@ -130,6 +133,68 @@ class StockInspectorRatingTest(unittest.TestCase):
 
         self.assertEqual(first["code"], second["code"])
         self.assertEqual(count, 1)
+
+    def test_report_repairs_short_history_and_ignores_suspect_list_date(self):
+        code = "TST261"
+        trade_date = date(2099, 5, 8)
+        timestamp = now_iso()
+        with get_connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO stocks (
+                    code, name, industry, market, list_date, is_st, is_suspended,
+                    float_market_cap, created_at, updated_at
+                )
+                VALUES (?, '拓维信息测试', '计算机', 'SZ', ?, 0, 0, 8000000000, ?, ?)
+                """,
+                (code, trade_date.isoformat(), timestamp, timestamp),
+            )
+            conn.execute(
+                """
+                INSERT INTO daily_prices
+                    (stock_code, date, open, high, low, close, volume, amount, pct_change)
+                VALUES (?, ?, 35, 36, 34, 35, 1000000, 35000000, -4.9)
+                """,
+                (code, trade_date.isoformat()),
+            )
+        history = _history_rows(code, trade_date, 130)
+        try:
+            with patch.object(stock_inspector_service, "_fetch_history_prices", return_value=history, create=True):
+                report = get_stock_inspection_report(code, force=True)
+
+            self.assertNotEqual(report["researchRating"], "无法评级")
+            self.assertNotEqual(report["dataConfidence"], "低")
+            self.assertFalse(report["rawFactors"]["hardRiskTriggered"])
+            self.assertIsNone(report["rawFactors"]["listedDays"])
+            self.assertIsNotNone(report["targetPriceRange"]["mid"])
+        finally:
+            with get_connection() as conn:
+                conn.execute("DELETE FROM stock_diagnosis_reports WHERE code = ?", (code,))
+                conn.execute("DELETE FROM daily_prices WHERE stock_code = ?", (code,))
+                conn.execute("DELETE FROM stocks WHERE code = ?", (code,))
+
+
+def _history_rows(code: str, end_date: date, count: int) -> list[dict]:
+    rows: list[dict] = []
+    for index in range(count):
+        day = end_date - timedelta(days=count - index - 1)
+        close = 20 + index * 0.12
+        previous_close = 20 + max(index - 1, 0) * 0.12
+        pct_change = (close / previous_close - 1) * 100 if index else 0
+        rows.append(
+            {
+                "stock_code": code,
+                "date": day.isoformat(),
+                "open": round(close * 0.99, 2),
+                "high": round(close * 1.02, 2),
+                "low": round(close * 0.98, 2),
+                "close": round(close, 2),
+                "volume": 1000000 + index * 1000,
+                "amount": round((1000000 + index * 1000) * close, 2),
+                "pct_change": round(pct_change, 2),
+            }
+        )
+    return rows
 
 
 if __name__ == "__main__":
