@@ -390,6 +390,7 @@ def detect_market_themes(market_context: dict, signals: list[dict], coverage: di
                     "sectorStrongStockCount": int(snapshot_theme.get("sectorStrongStockCount") or 0),
                     "sectorAmountChange": round(float(snapshot_theme.get("sectorAmountChange") or 0), 4),
                     "continuationDays": int(snapshot_theme.get("continuationDays") or 1),
+                    "sourcePriority": 1,
                 }
             )
     for sector, stats in sector_stats.items():
@@ -411,10 +412,11 @@ def detect_market_themes(market_context: dict, signals: list[dict], coverage: di
                     "sectorStrongStockCount": int(stats.get("sectorStrongStockCount") or 0),
                     "sectorAmountChange": round(float(stats.get("sectorAmountChange") or 0), 4),
                     "continuationDays": int(stats.get("continuationDays") or 1),
+                    "sourcePriority": 0,
                 }
             )
     themes.extend(_style_theme_estimates(market_context, coverage))
-    themes.sort(key=lambda item: item["themeScore"], reverse=True)
+    themes.sort(key=lambda item: (item.get("sourcePriority", 0), item["themeScore"]), reverse=True)
     incomplete = critical_missing or not any((stats.get("sectorLimitUpCount") or 0) > 0 for stats in sector_stats.values())
     top_confidence = _theme_confidence(themes, incomplete)
     if themes:

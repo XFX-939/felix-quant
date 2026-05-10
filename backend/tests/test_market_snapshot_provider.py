@@ -69,7 +69,16 @@ class MarketSnapshotProviderTest(unittest.TestCase):
         snapshot = get_market_snapshot("2026-05-08")
         context = {
             "marketSnapshot": snapshot,
-            "sectorStats": {},
+            "sectorStats": {
+                "北交所": {
+                    "sectorPctChg": 8.0,
+                    "sectorRank": 1,
+                    "sectorLimitUpCount": 20,
+                    "sectorStrongStockCount": 40,
+                    "sectorAmountChange": 0.8,
+                    "continuationDays": 1,
+                }
+            },
             **snapshot["data"],
         }
         coverage = data_coverage_panel(context)
